@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
@@ -32,7 +33,7 @@ func TestLocalPreviewPersistsItsIdentity(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if file.Mode().Perm()&0077 != 0 {
+	if runtime.GOOS != "windows" && file.Mode().Perm()&0077 != 0 {
 		t.Fatal("access file is readable by others")
 	}
 }
