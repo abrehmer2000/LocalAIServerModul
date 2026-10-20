@@ -1,0 +1,4 @@
+# Development-only tools for repeatable real inference smoke tests.
+openai==3.35.1
+gguf==0.19.0
+numpy==2.5.4

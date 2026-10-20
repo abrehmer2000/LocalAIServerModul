@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="de">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>KI-Basis · Lokale KI</title><link rel="stylesheet" href="/style.css"><script src="/app.js" defer></script></head>
+<body>
+<header><a class="brand" href="/" aria-label="KI-Basis Startseite"><span class="mark">K</span> KI-Basis <span class="version">Entwicklung</span></a><span class="local"><span class="dot"></span> Eigene Infrastruktur</span></header>
+<main>
+<div class="eyebrow">DEIN LOKALES KI-BACKEND</div>
+<div class="intro"><div><h1>Ein Zugang.<br>Mehr Möglichkeiten.</h1><p>Modelle auf deinen Servern. Eine gemeinsame API.<br>Nachvollziehbar, erweiterbar und unter deiner Kontrolle.</p></div><div class="topology" aria-label="Anwendungen verbinden sich über das Gateway mit Modellservern"><div>Anwendungen</div><span>↓</span><div class="gateway-node">KI-Basis Gateway</div><span>↓</span><div class="replicas"><span>CPU</span><span>GPU</span><span>Weitere Knoten</span></div></div></div>
+<section class="metrics" aria-label="Systemübersicht"><article><div class="label">Gateway</div><div class="metric" id="gateway-status">Wird geprüft …</div><p id="gateway-note">Verbindung zum API-Prozess</p></article><article><div class="label">Bereite Agenten</div><div class="metric" id="ready-count">—</div><p id="node-note">Zugang erforderlich</p></article><article><div class="label">Gelistete Modelle</div><div class="metric" id="model-count">—</div><p>Konfiguration, keine Qualitätsaussage</p></article></section>
+<div class="columns"><section class="panel"><div class="panel-heading"><h2>Mit dem Gateway verbinden</h2><span class="badge">API-Zugang</span></div><p class="muted">API-Key und pseudonyme Benutzer-ID werden für Statusabfragen benötigt. Der Key bleibt nur im Arbeitsspeicher dieses Tabs.</p><form id="connect-form"><label for="api-key">API-Key</label><input id="api-key" type="password" autocomplete="off" placeholder="kb_…" required><label for="user-id">Benutzer-ID</label><input id="user-id" autocomplete="off" placeholder="z. B. admin-01" pattern="[a-zA-Z0-9][a-zA-Z0-9._:\-]{0,127}" required><div class="actions"><button type="submit" id="connect-button">Status laden <span>↗</span></button><button type="button" class="secondary" id="disconnect">Trennen</button></div></form><p id="connection-message" role="status" aria-live="polite">Noch nicht verbunden.</p></section>
+<section class="panel model-panel"><div class="panel-heading"><h2>Dein Standardmodell</h2><span class="badge purple">Standardprofil</span></div><div class="model-icon">G<span>4</span></div><h3>Gemma 4 <span>26B A4B</span></h3><p class="muted">Mixture-of-Experts · Instruction-tuned</p><div class="model-tags"><span>GGUF</span><span>QAT Q4_0</span><span>llama.cpp</span></div><p class="model-note">Als Standard vorgesehen. Das Modell ist erst verfügbar, wenn es heruntergeladen und auf einem bereiten Knoten gestartet wurde.</p><a href="https://huggingface.co/google/gemma-4-26B-A4B-it-qat-q4_0-gguf" target="_blank" rel="noopener noreferrer">Offizielle Modelldateien ↗</a></section></div>
+<section class="panel nodes-panel"><div class="panel-heading"><h2>Modellserver</h2><button type="button" class="secondary" id="refresh" disabled>Aktualisieren ↻</button></div><div id="nodes" class="empty">Verbinde dich mit dem Gateway, um die registrierten Knoten zu sehen.</div></section>
+<section class="api-section"><div><div class="eyebrow">API ZUERST</div><h2>Bereit für deine Anwendung.</h2><p>OpenAI-kompatible Chat-Completions mit Streaming.<br>Ein Modell pro Server, zusätzliche Kapazität durch weitere Knoten.</p></div><pre><code>POST /v1/chat/completions
+Authorization: Bearer &lt;API-Key&gt;
+X-User-ID: &lt;Benutzer-ID&gt;
+
+{
+  "model": "gemma-4-26b-a4b",
+  "messages": [{"role": "user", "content": "Hallo"}],
+  "stream": true
+}</code></pre></section>
+<footer><span>KI-Basis · Lokaler Betrieb</span><span>Audit mit Metadaten · Keine Usecase-Bewertung · Keine Lizenzprüfung</span></footer>
+</main></body></html>

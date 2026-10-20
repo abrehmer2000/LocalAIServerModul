@@ -1,0 +1,11 @@
+/bin/
+/data/
+/work/
+*.db
+*.db-shm
+*.db-wal
+*.pem
+config.local.json
+
+__pycache__/
+*.pyc

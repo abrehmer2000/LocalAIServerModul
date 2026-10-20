@@ -1,0 +1,34 @@
+name: Mac Apple Silicon Preview
+on:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  package:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.27.x'
+          cache: true
+      - name: Test on macOS
+        run: go test -race -count=1 -timeout=90s ./...
+      - name: Build Apple Silicon package
+        run: |
+          mkdir -p work/mac-preview/KI-Basis-Mac
+          GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 go build -trimpath -o work/mac-preview/KI-Basis-Mac/ki-basis ./cmd/ki-basis
+          python3 scripts/collect_licenses.py --output work/mac-preview/KI-Basis-Mac/THIRD-PARTY-NOTICES.txt
+          cp packaging/macos/Start.command packaging/macos/LIESMICH.txt work/mac-preview/KI-Basis-Mac/
+          chmod +x work/mac-preview/KI-Basis-Mac/ki-basis work/mac-preview/KI-Basis-Mac/Start.command
+          cd work/mac-preview
+          zip -r KI-Basis-Mac-Apple-Silicon.zip KI-Basis-Mac
+          shasum -a 256 KI-Basis-Mac-Apple-Silicon.zip > SHA256SUMS.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: KI-Basis-Mac-Apple-Silicon
+          path: |
+            work/mac-preview/KI-Basis-Mac-Apple-Silicon.zip
+            work/mac-preview/SHA256SUMS.txt
+          retention-days: 14

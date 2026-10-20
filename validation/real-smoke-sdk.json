@@ -1,0 +1,14 @@
+{
+  "real_inference": true,
+  "client": "openai-python",
+  "nodes_verified": 2,
+  "answers": [
+    "One day, a young boy named Sammy and his mommy went to the park. Sammy was excited to explore the park, but his mommy said they had to be careful.\nSammy and his mommy started walking to",
+    "One day, an old man came to the park. He was wearing a blue shirt and had a big smile.\nHe said to the young children, “What is your name? I like your language!”\nThe children were"
+  ],
+  "audit": {
+    "head_hash": "749d884098a2343cb90faa4c70042bfff2bd5cae61421c6e7c92a24c321b4609",
+    "sequence": 5,
+    "valid": true
+  }
+}
