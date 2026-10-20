@@ -75,7 +75,17 @@ func localConfiguration(dir string, port int) (config.Config, string, error) {
 	}
 	h := sha256.Sum256([]byte(access.Key))
 	c = config.Config{Listen: net.JoinHostPort("127.0.0.1", fmt.Sprint(port)), Database: filepath.Join(absolute, "gateway.db"), TLSCert: filepath.Join(pkiDir, "gateway.crt"), TLSKey: filepath.Join(pkiDir, "gateway.key"), ControlCACert: filepath.Join(pkiDir, "ca.crt"), ControlCAKey: filepath.Join(pkiDir, "ca.key"), Keys: []config.Key{{ID: "local-preview", SHA256: hex.EncodeToString(h[:])}}, TimeoutSeconds: 180, MaxBodyBytes: 1 << 20, MaxOutputTokens: 2048, Nodes: []config.Node{}}
-	return c, access.Key, c.Validate()
+	if err = c.Validate(); err != nil {
+		return c, "", err
+	}
+	configData, err := json.MarshalIndent(c, "", "  ")
+	if err != nil {
+		return c, "", err
+	}
+	if err = os.WriteFile(filepath.Join(absolute, "config.json"), configData, 0600); err != nil {
+		return c, "", err
+	}
+	return c, access.Key, nil
 }
 func quickstartCommand(args []string) error {
 	flags := flag.NewFlagSet("quickstart", flag.ContinueOnError)

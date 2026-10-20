@@ -1,0 +1,41 @@
+name: Linux and Windows Pilot Packages
+on:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.27.x'
+          cache: true
+      - name: Build pilot packages
+        run: |
+          go mod download
+          mkdir -p work/pilot
+          python3 scripts/collect_licenses.py --output work/pilot/THIRD-PARTY-NOTICES.txt
+          for target in linux-amd64 linux-arm64 windows-amd64; do
+            os="${target%-*}"
+            arch="${target#*-}"
+            directory="work/pilot/KI-Basis-${target}"
+            mkdir -p "$directory/examples"
+            executable="ki-basis"
+            if [ "$os" = windows ]; then executable="ki-basis.exe"; fi
+            GOOS="$os" GOARCH="$arch" CGO_ENABLED=0 go build -trimpath -o "$directory/$executable" ./cmd/ki-basis
+            cp FIRST-SERVER.md AGENT-SETUP.md PILOT-TEST.md work/pilot/THIRD-PARTY-NOTICES.txt "$directory/"
+            cp examples/config-agents.json "$directory/examples/"
+            (cd work/pilot && zip -r "KI-Basis-${target}.zip" "KI-Basis-${target}")
+          done
+          cd work/pilot
+          sha256sum *.zip > SHA256SUMS.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Linux-Windows-Pilot
+          path: |
+            work/pilot/*.zip
+            work/pilot/SHA256SUMS.txt
+          retention-days: 14
