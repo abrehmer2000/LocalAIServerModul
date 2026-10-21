@@ -18,10 +18,12 @@ var idPattern = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._:-]{0,127}$`)
 func ValidID(s string) bool { return idPattern.MatchString(s) }
 
 type Key struct {
+	Admin  bool   `json:"admin,omitempty"`
 	ID     string `json:"id"`
 	SHA256 string `json:"sha256"`
 }
 type Node struct {
+	Connection    string `json:"connection,omitempty"`
 	ModelSHA256   string `json:"model_sha256,omitempty"`
 	ID            string `json:"id"`
 	URL           string `json:"url"`
@@ -115,6 +117,9 @@ func (c Config) Validate() error {
 	seen = map[string]bool{}
 	revisions := map[string]string{}
 	for _, n := range c.Nodes {
+		if n.Connection != "" && n.Connection != "direct" && n.Connection != "outbound" {
+			return errors.New("invalid connection mode")
+		}
 		if n.ModelSHA256 != "" && !regexp.MustCompile(`^[a-f0-9]{64}$`).MatchString(n.ModelSHA256) {
 			return errors.New("invalid model SHA-256")
 		}

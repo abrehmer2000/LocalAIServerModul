@@ -24,6 +24,7 @@ def main():
     parser.add_argument('--gateway', type=Path, required=True)
     parser.add_argument('--engine', type=Path, required=True)
     parser.add_argument('--model', type=Path, required=True)
+    parser.add_argument('--outbound', action='store_true', help='use agent-initiated HTTPS only; no agent listener')
     args = parser.parse_args()
     binary, engine, model = [str(p.resolve(strict=True)) for p in (args.gateway, args.engine, args.model)]
     digest = hashlib.sha256()
@@ -100,7 +101,7 @@ def main():
             for i in range(2):
                 agent_port, engine_port = free_port(), free_port()
                 engine_ports.append(engine_port)
-                token = json.loads(command('join-token', '--config', str(config_path), '--node-id', f'agent-{i+1}',
+                token = json.loads(command('join-token', '--config', str(config_path), '--connection', 'outbound' if args.outbound else 'direct', '--node-id', f'agent-{i+1}',
                     '--url', f'https://127.0.0.1:{agent_port}', '--model', 'chat-local', '--upstream-model', 'local-model',
                     '--revision', 'sha256:' + digest.hexdigest(), '--model-sha256', digest.hexdigest()))['token']
                 state_path = str(root / f'agent-{i+1}.json')
@@ -150,7 +151,7 @@ def main():
             assert 'Once upon a time' not in serialized and key['key'] not in serialized
             assert all(token not in serialized for token in [token])
             proof = json.loads(command('audit-verify', '--config', str(config_path)))
-            print(json.dumps({'dynamic_join': True, 'mtls': True, 'managed_engines': 2, 'join_without_gateway_restart': True, 'gateway_restart_recovery_verified': True,
+            print(json.dumps({'outbound_only': args.outbound, 'dynamic_join': True, 'mtls': True, 'managed_engines': 2, 'join_without_gateway_restart': True, 'gateway_restart_recovery_verified': True,
                 'inference_nodes': sorted(nodes), 'revocation_verified': True, 'agent_withdrawal_verified': True, 'engine_shutdown_verified': True,
                 'audit': proof}, indent=2))
         except Exception:

@@ -157,6 +157,7 @@ func validate(s State) (tls.Certificate, error) {
 }
 
 type Runner struct {
+	Manager   *ModelManager
 	mu        sync.RWMutex
 	state     State
 	pair      tls.Certificate
@@ -174,13 +175,18 @@ func New(path, engineURL string) (*Runner, error) {
 	if err != nil {
 		return nil, err
 	}
-	u, err := url.Parse(engineURL)
-	if err != nil || u.Scheme != "http" || !config.IsLoopback(u.Hostname()) || u.User != nil || u.Path != "" || u.RawQuery != "" || u.Fragment != "" {
-		return nil, errors.New("engine must be an HTTP loopback IP origin")
+	if err := ValidateEngineURL(engineURL); err != nil {
+		return nil, err
 	}
+	u, _ := url.Parse(engineURL)
 	return &Runner{state: s, pair: pair, path: path, upstream: u, transport: &http.Transport{Proxy: nil, DialContext: (&net.Dialer{Timeout: 3 * time.Second}).DialContext, ResponseHeaderTimeout: 30 * time.Second, MaxConnsPerHost: s.Identity.Node.Capacity + 2, IdleConnTimeout: 30 * time.Second}}, nil
 }
-func (r *Runner) Close() { r.transport.CloseIdleConnections() }
+func (r *Runner) Close() {
+	if r.Manager != nil {
+		r.Manager.Close()
+	}
+	r.transport.CloseIdleConnections()
+}
 func (r *Runner) TLSConfig() (*tls.Config, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -269,9 +275,20 @@ func (r *Runner) Heartbeat(ctx context.Context, ready bool) error {
 		return err
 	}
 	defer c.CloseIdleConnections()
-	var response map[string]int
-	if err = post(ctx, c, state.Gateway+"/internal/heartbeat", control.Heartbeat{Ready: ready}, &response); err != nil {
+	var response control.HeartbeatResponse
+	heartbeat := control.Heartbeat{Ready: ready}
+	if r.Manager != nil {
+		report := r.Manager.Report()
+		heartbeat.Report = &report
+		if report.State == "stopped" || report.State == "error" {
+			heartbeat.Ready = false
+		}
+	}
+	if err = post(ctx, c, state.Gateway+"/internal/heartbeat", heartbeat, &response); err != nil {
 		return err
+	}
+	if r.Manager != nil {
+		r.Manager.Apply(ctx, response.Plan)
 	}
 	cert, err := x509.ParseCertificate(pair.Certificate[0])
 	if err != nil {
@@ -331,4 +348,12 @@ func (r *Runner) RunHeartbeats(ctx context.Context, onError func(error)) {
 		case <-timer.C:
 		}
 	}
+}
+
+func ValidateEngineURL(raw string) error {
+	u, err := url.Parse(raw)
+	if err != nil || u.Scheme != "http" || !config.IsLoopback(u.Hostname()) || u.Port() == "" || u.User != nil || u.Path != "" || u.RawQuery != "" || u.Fragment != "" {
+		return errors.New("engine must be an HTTP loopback IP origin with port")
+	}
+	return nil
 }

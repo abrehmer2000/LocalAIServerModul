@@ -26,7 +26,13 @@ jobs:
             executable="ki-basis"
             if [ "$os" = windows ]; then executable="ki-basis.exe"; fi
             GOOS="$os" GOARCH="$arch" CGO_ENABLED=0 go build -trimpath -o "$directory/$executable" ./cmd/ki-basis
-            cp FIRST-SERVER.md AGENT-SETUP.md PILOT-TEST.md work/pilot/THIRD-PARTY-NOTICES.txt "$directory/"
+            cp FIRST-SERVER.md AGENT-SETUP.md DASHBOARD-SETUP.md PILOT-TEST.md work/pilot/THIRD-PARTY-NOTICES.txt "$directory/"
+            if [ "$os" = windows ]; then
+              cp packaging/agent/Start-Agent.cmd packaging/agent/Start-Zentrale.cmd "$directory/"
+            else
+              cp packaging/agent/Start-Agent.sh packaging/agent/Start-Zentrale.sh packaging/agent/Start-Agent.desktop "$directory/"
+              chmod +x "$directory/Start-Zentrale.sh" "$directory/Start-Agent.sh" "$directory/Start-Agent.desktop"
+            fi
             cp examples/config-agents.json "$directory/examples/"
             (cd work/pilot && zip -r "KI-Basis-${target}.zip" "KI-Basis-${target}")
           done

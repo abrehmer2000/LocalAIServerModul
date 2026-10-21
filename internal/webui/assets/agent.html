@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="de">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>KI-Basis · Server verbinden</title>
+    <link rel="stylesheet" href="/style.css" />
+    <script src="/agent.js" defer></script>
+  </head>
+  <body>
+    <header>
+      <a class="brand" href="/">KI-Basis <span class="version">Agent</span></a>
+    </header>
+    <main>
+      <div class="eyebrow">DIESEN RECHNER VERBINDEN</div>
+      <h1>Einmal verbinden.<br />Zentral verwalten.</h1>
+      <p>
+        Erstelle in der Zentrale unter „Server hinzufügen“ eine
+        Verbindungsdatei. Importiere sie hier, um diesen Rechner anzumelden.
+      </p>
+      <section class="panel">
+        <h2>Verbindungsdatei importieren</h2>
+        <form id="enroll-form">
+          <label for="bundle">connection.json</label
+          ><input id="bundle" type="file" accept=".json" required />
+          <details>
+            <summary>Lokale Einstellungen</summary>
+            <label for="binary">llama-server: vollständiger Programmpfad</label
+            ><input id="binary" placeholder="Wird automatisch gesucht" />
+            <p>
+              Die passende llama.cpp-Laufzeit muss lokal installiert sein.
+              GPU-Treiber werden nicht automatisch verändert.
+            </p>
+            <label for="engine">Lokale Modellserver-Adresse</label
+            ><input id="engine" value="http://127.0.0.1:8082" /><label
+              for="existing-model"
+              >Bereits vorhandene GGUF-Datei (optional)</label
+            ><input
+              id="existing-model"
+              placeholder="Vollständiger Dateipfad auf diesem Rechner"
+            />
+            <p>
+              Die Datei wird gegen die Katalog-Prüfsumme geprüft und ohne zweite
+              Kopie verwendet.
+            </p>
+            <label for="models">Modellverzeichnis</label><input id="models" />
+          </details>
+          <button id="save-settings" type="button" class="secondary" hidden>
+            Lokale Einstellungen speichern und Agent neu starten</button
+          ><button id="submit" type="submit">Rechner verbinden</button>
+        </form>
+        <p id="result" role="status" aria-live="polite"></p>
+      </section>
+      <section class="panel">
+        <h2>Automatischer Start</h2>
+        <p>
+          Agent unter Windows und Linux nach deiner Benutzeranmeldung
+          automatisch starten. Das Programmpaket dafür an seinem dauerhaften
+          Speicherort lassen.
+        </p>
+        <button id="autostart-enable" type="button">
+          Bei Anmeldung starten</button
+        ><button id="autostart-disable" class="secondary" type="button">
+          Autostart entfernen
+        </button>
+        <p id="autostart-result" role="status"></p>
+        <p class="muted">
+          Linux benötigt eine systemd-Benutzersitzung. Für einen
+          unbeaufsichtigten Serverbetrieb nach dem Abmelden ist weiterhin eine
+          systemweite Dienstinstallation nötig.
+        </p>
+      </section>
+      <section class="panel">
+        <h2>Rechnerstatus</h2>
+        <pre id="status">Wird geladen …</pre>
+        <p>
+          Nach der Anmeldung steuerst du Downloads und Modellbetrieb im
+          zentralen Dashboard. Dieses Programm muss dafür laufen.
+        </p>
+      </section>
+    </main>
+  </body>
+</html>

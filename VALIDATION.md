@@ -137,3 +137,28 @@ Gateway-/CA-Zertifikatserneuerung, Admin-Oberfläche, Pilotbetrieb und Produktio
 
 Gemma selbst, GPU-Ausführung und Windows-Laufzeit sind weiterhin nicht abgenommen.
 Die Pilotanleitung steht in `PILOT-TEST.md`.
+
+## Dashboard und ausgehende Agenten (21.10.2026)
+
+- `go test -race ./...` und `go vet ./...`: erfolgreich unter Linux.
+- Neue Integrationstests: Verwaltungsrechte, einmalige Verbindungsdateien,
+  Geräte-mTLS, zwei ausgehende Agenten, Streaming ohne Antwortpufferung,
+  Abbruchweitergabe, Sperrung, persistente Modellaufträge, unveränderliche
+  Modellversionen, fortsetzbare Downloads und Ablehnung beschädigter Dateien.
+- Echter CLI-Test mit zwei getrennten llama.cpp-Prozessen und TinyStories 15M:
+  `scripts/agent_smoke.py --outbound`; beide Agenten liefern Inferenz, zweiter Join
+  ohne Gateway-Neustart, Erholung nach Gateway-Neustart, Sperrung und geordneter
+  Engine-Stopp erfolgreich. Audit-Kette gültig (31 Einträge im Testlauf).
+- Echter Chromium-Browsertest: `scripts/dashboard_smoke.py`; Verbindungsdatei im
+  Dashboard erzeugt, im lokalen Agenten importiert, Geräteanmeldung über echtes
+  TLS, Darstellung im Dashboard und Audit bestätigt. Keine JS-Laufzeitfehler,
+  keine Zugangsdaten im Local Storage; Trennen leert sensible Ansichten.
+- Modelldownloads werden mit kontrollierten HTTP-Antworten auf SHA-256, falsche
+  Dateien und Range-Fortsetzung getestet. Ein neuer echter Hugging-Face-Download
+  aus dieser Entwicklungsumgebung ist weiterhin durch deren Netzwerkpolicy
+  eingeschränkt; dieser Test ersetzt keinen Gemma-Download auf Kundengeräten.
+- Der bestehende Gemma/A40-Test im Nutzer-RunPod betraf die vorherige direkte
+  Agentenverbindung. Das Dashboard-Update wurde dort noch nicht installiert.
+- Windows-/Linux-Pakete enthalten Agent- und Zentralenstarter. Native Autostart-
+  Integration, Desktopstarter und GPU-Laufzeiten benötigen weiterhin Tests auf
+  den jeweiligen Zielrechnern. Cross-Builds sind keine nativen Betriebssystemtests.

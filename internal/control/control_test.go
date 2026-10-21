@@ -55,7 +55,7 @@ func setup(t *testing.T) *fixture {
 	}
 	f := &fixture{t: t, dir: dir, c: c, store: store}
 	f.start()
-	t.Cleanup(func() { f.server.Close(); f.g.Close(); store.Close() })
+	t.Cleanup(func() { f.server.Close(); f.g.Close(); f.control.Close(); store.Close() })
 	return f
 }
 func (f *fixture) start() {
@@ -70,6 +70,7 @@ func (f *fixture) start() {
 	}
 	mux := http.NewServeMux()
 	mux.Handle("/internal/", f.control.Handler())
+	mux.Handle("/admin/", f.g.Admin(f.control.AdminHandler()))
 	mux.Handle("/", f.g.Handler())
 	f.server = httptest.NewUnstartedServer(mux)
 	tc := f.control.TLSConfig()

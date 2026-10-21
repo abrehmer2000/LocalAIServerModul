@@ -1,6 +1,8 @@
 // Package event defines the metadata-only audit contract independently of storage.
 package event
 
+import "context"
+
 type Event struct {
 	Actor            string `json:"actor,omitempty"`
 	RequestID        string `json:"request_id,omitempty"`
@@ -16,3 +18,10 @@ type Event struct {
 	PromptTokens     *int64 `json:"prompt_tokens,omitempty"`
 	CompletionTokens *int64 `json:"completion_tokens,omitempty"`
 }
+
+type contextKey struct{}
+
+func WithContext(ctx context.Context, e Event) context.Context {
+	return context.WithValue(ctx, contextKey{}, e)
+}
+func FromContext(ctx context.Context) Event { e, _ := ctx.Value(contextKey{}).(Event); return e }

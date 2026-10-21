@@ -1,5 +1,7 @@
 # Weitere Modellserver per Agent hinzufügen
 
+Für die Anmeldung und Modellverwaltung über den Browser siehe [DASHBOARD-SETUP.md](DASHBOARD-SETUP.md). Die folgenden Schritte beschreiben weiterhin den direkten CLI-Modus.
+
 Die Registrierung funktioniert im laufenden Gateway. Jeder Knoten hat eine eigene Geräteidentität.
 Ein Join-Token ist zehn Minuten gültig und einmal verwendbar. Die Registrierung ist an Adresse,
 Modell, Revision und Kapazität gebunden; der Agent kann diese Angaben nicht selbst erweitern.
@@ -56,7 +58,7 @@ Replikate desselben öffentlichen Modells müssen dieselbe deklarierte Revision 
 ## 3. Modellserver registrieren
 
 Auf dem Modellserver sind die ausführbare KI-Basis-Datei, `llama-server`, das gewünschte GGUF-Modell
-und die öffentliche CA-Datei erforderlich. Installer und automatischer Modelldownload folgen separat.
+und die öffentliche CA-Datei erforderlich. Für neue ausgehende Agenten sind Browser-Einrichtung, Starter und Katalogdownload verfügbar; siehe DASHBOARD-SETUP.md.
 
 Bash, Token interaktiv ohne Echo oder Aufnahme des Wertes in die Befehlshistorie einlesen:
 
@@ -97,7 +99,7 @@ den Knoten widerrufen und mit neuer ID sowie neuem Token registrieren.
 
 Unter Windows entsprechend `ki-basis.exe` und einen Pfad zu `llama-server.exe` verwenden.
 Der Agent prüft die Modell-Prüfsumme und startet die Engine mit festen Argumenten ohne Shell.
-Der Engine-Port muss frei sein. Hardwareoptionen wie GPU-Offload sind in diesem Stand noch nicht über den Agent konfigurierbar.
+Der Engine-Port muss frei sein. Im hier beschriebenen direkten CLI-Modus gibt es keine GPU-Offload-Auswahl. Der Dashboard-Modus unterstützt CPU beziehungsweise GPU-Offload über den neuen Modellmanager.
 Engine-Standardausgabe wird aus Datenschutzgründen nicht in Agent-Logs übernommen.
 Nach fünf erfolglosen Starts endet der Agent mit Fehler. Bei regulärem Beenden wird der eigene Prozessbaum gestoppt.
 

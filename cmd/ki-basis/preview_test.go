@@ -78,3 +78,34 @@ func TestPreviewVerifiesBackendTLS(t *testing.T) {
 		t.Fatal("remote preview target accepted")
 	}
 }
+
+func TestManagementBrowserForwardsOnlyExplicitAuthenticatedSurface(t *testing.T) {
+	var paths []string
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		paths = append(paths, r.URL.Path)
+		if r.Header.Get("Authorization") != "Bearer admin" {
+			t.Error("missing credential")
+		}
+		w.Header().Set("Content-Type", "application/json")
+		io.WriteString(w, `{}`)
+	}))
+	defer backend.Close()
+	handler, err := browserHandler(backend.URL, "", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{"/admin/enroll", "/v1/chat/completions"} {
+		req := httptest.NewRequest("POST", path, strings.NewReader(`{}`))
+		req.Header.Set("Authorization", "Bearer admin")
+		w := httptest.NewRecorder()
+		handler.ServeHTTP(w, req)
+		if w.Code != 200 {
+			t.Fatal(w.Code)
+		}
+	}
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, httptest.NewRequest("POST", "/internal/join", strings.NewReader(`{}`)))
+	if len(paths) != 2 || w.Code < 400 {
+		t.Fatal("internal plane exposed")
+	}
+}

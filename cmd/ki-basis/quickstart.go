@@ -17,10 +17,8 @@ import (
 	"net"
 	"net/http"
 	"os"
-	"os/exec"
 	"os/signal"
 	"path/filepath"
-	"runtime"
 	"syscall"
 	"time"
 )
@@ -33,6 +31,28 @@ func localConfiguration(dir string, port int) (config.Config, string, error) {
 	}
 	if err = os.MkdirAll(absolute, 0700); err != nil {
 		return c, "", err
+	}
+	// Existing configuration is authoritative: never resurrect a rotated or revoked key.
+	configPath := filepath.Join(absolute, "config.json")
+	if _, e := os.Stat(configPath); e == nil {
+		existing, e := config.Load(configPath)
+		if e != nil {
+			return c, "", e
+		}
+		var access struct {
+			Key string `json:"key"`
+		}
+		if raw, e := os.ReadFile(filepath.Join(absolute, "access.json")); e == nil && json.Unmarshal(raw, &access) == nil {
+			hash := sha256.Sum256([]byte(access.Key))
+			for _, k := range existing.Keys {
+				if k.SHA256 == hex.EncodeToString(hash[:]) {
+					return existing, access.Key, nil
+				}
+			}
+		}
+		return existing, "", nil
+	} else if !os.IsNotExist(e) {
+		return c, "", e
 	}
 	pkiDir := filepath.Join(absolute, "pki")
 	if _, err = os.Stat(pkiDir); os.IsNotExist(err) {
@@ -74,7 +94,7 @@ func localConfiguration(dir string, port int) (config.Config, string, error) {
 		}
 	}
 	h := sha256.Sum256([]byte(access.Key))
-	c = config.Config{Listen: net.JoinHostPort("127.0.0.1", fmt.Sprint(port)), Database: filepath.Join(absolute, "gateway.db"), TLSCert: filepath.Join(pkiDir, "gateway.crt"), TLSKey: filepath.Join(pkiDir, "gateway.key"), ControlCACert: filepath.Join(pkiDir, "ca.crt"), ControlCAKey: filepath.Join(pkiDir, "ca.key"), Keys: []config.Key{{ID: "local-preview", SHA256: hex.EncodeToString(h[:])}}, TimeoutSeconds: 180, MaxBodyBytes: 1 << 20, MaxOutputTokens: 2048, Nodes: []config.Node{}}
+	c = config.Config{Listen: net.JoinHostPort("127.0.0.1", fmt.Sprint(port)), Database: filepath.Join(absolute, "gateway.db"), TLSCert: filepath.Join(pkiDir, "gateway.crt"), TLSKey: filepath.Join(pkiDir, "gateway.key"), ControlCACert: filepath.Join(pkiDir, "ca.crt"), ControlCAKey: filepath.Join(pkiDir, "ca.key"), Keys: []config.Key{{ID: "local-preview", Admin: true, SHA256: hex.EncodeToString(h[:])}}, TimeoutSeconds: 180, MaxBodyBytes: 1 << 20, MaxOutputTokens: 2048, Nodes: []config.Node{}}
 	if err = c.Validate(); err != nil {
 		return c, "", err
 	}
@@ -117,11 +137,13 @@ func quickstartCommand(args []string) error {
 	if err != nil {
 		return err
 	}
+	defer controller.Close()
 	mux := http.NewServeMux()
 	mux.Handle("/internal/", controller.Handler())
+	mux.Handle("/admin/", g.Admin(controller.AdminHandler()))
 	mux.Handle("/", g.Handler())
 	backend := &http.Server{Handler: mux, TLSConfig: controller.TLSConfig(), ReadHeaderTimeout: 10 * time.Second, ReadTimeout: 30 * time.Second, IdleTimeout: 30 * time.Second, MaxHeaderBytes: 16 << 10}
-	preview, err := previewHandler("https://"+c.Listen, c.ControlCACert)
+	preview, err := browserHandler("https://"+c.Listen, c.ControlCACert, true)
 	if err != nil {
 		return err
 	}
@@ -148,11 +170,12 @@ func quickstartCommand(args []string) error {
 	go func() { results <- frontend.Serve(frontListener) }()
 	address := "http://" + browserAddress
 	// This is an explicit local setup screen, equivalent to keygen, not a service log.
+	if key == "" {
+		key = "Bestehende Zugangsdaten verwenden (kein Schlüssel ausgegeben)."
+	}
 	fmt.Fprintf(os.Stdout, "\nKI-Basis lokale Vorschau\n\nBrowser: %s\nAPI-Key: %s\nBenutzer-ID: local-preview\n\nKeine Modellgewichte erforderlich. Beenden mit Ctrl+C.\n\n", address, key)
 	if *launch {
-		if runtime.GOOS == "darwin" {
-			_ = exec.Command("open", address).Run()
-		}
+		openBrowser(address)
 	}
 	var result error
 	select {

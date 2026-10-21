@@ -3,6 +3,7 @@ package main
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -35,5 +36,26 @@ func TestLocalPreviewPersistsItsIdentity(t *testing.T) {
 	}
 	if runtime.GOOS != "windows" && file.Mode().Perm()&0077 != 0 {
 		t.Fatal("access file is readable by others")
+	}
+}
+
+func TestQuickstartNeverResurrectsRotatedKey(t *testing.T) {
+	dir := t.TempDir()
+	cfg, original, err := localConfiguration(dir, 8443)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg.Keys[0].SHA256 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	cfg.Keys[0].Admin = false
+	data, _ := json.Marshal(cfg)
+	if err = os.WriteFile(filepath.Join(dir, "config.json"), data, 0600); err != nil {
+		t.Fatal(err)
+	}
+	reused, key, err := localConfiguration(dir, 8443)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if key == original || key != "" || reused.Keys[0].SHA256 != cfg.Keys[0].SHA256 || reused.Keys[0].Admin {
+		t.Fatal("rotated key restored or elevated")
 	}
 }

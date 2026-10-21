@@ -55,3 +55,34 @@ func Handler() http.Handler {
 		}
 	})
 }
+
+// AgentHandler uses the same restrictive asset headers as the dashboard.
+func AgentHandler() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/":
+			serveAgentAsset(w, r, "agent.html", "text/html; charset=utf-8")
+		case "/agent.js":
+			serveAgentAsset(w, r, "agent.js", "text/javascript; charset=utf-8")
+		case "/style.css":
+			Handler().ServeHTTP(w, r)
+		default:
+			http.NotFound(w, r)
+		}
+	})
+}
+func serveAgentAsset(w http.ResponseWriter, r *http.Request, name, kind string) {
+	w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'")
+	w.Header().Set("Referrer-Policy", "no-referrer")
+	if r.Method != "GET" {
+		http.Error(w, "method not allowed", 405)
+		return
+	}
+	data, err := assets.ReadFile("assets/" + name)
+	if err != nil {
+		http.Error(w, "asset unavailable", 500)
+		return
+	}
+	w.Header().Set("Content-Type", kind)
+	_, _ = w.Write(data)
+}

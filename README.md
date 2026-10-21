@@ -19,7 +19,12 @@ dynamische Anmeldung ohne Gateway-Neustart, Widerruf und automatische Gerätezer
 Optional startet er llama-server mit Modell-Prüfsummenprüfung und begrenzten Neustartversuchen.
 Siehe `AGENT-SETUP.md` und `examples/config-agents.json`.
 Die direkte statische Backend-Konfiguration bleibt für einfache Einzelserver nutzbar.
-Modelldownloads, Admin-Oberfläche, Benutzerverwaltung, Embeddings, Tool-Calling und Dienstinstaller sind noch nicht enthalten.
+Das Dashboard unterstützt jetzt Serveranmeldung per Verbindungsdatei, ausgehende Agentenverbindungen,
+Modell-Downloads mit Fortschritt und SHA-256-Prüfung, Start/Stopp eigener Modellprozesse,
+Audit-Ansicht und einen Streaming-API-Test. Administratorrechte sind von Anwendungs-Keys getrennt.
+Die lokale Agenteneinrichtung öffnet sich per Starter im Browser. Siehe [DASHBOARD-SETUP.md](DASHBOARD-SETUP.md).
+Vollständige Benutzerkontenverwaltung, zusätzliche Downloadkataloge, Embeddings, Tool-Calling,
+signierte Systeminstaller und die automatische Installation von GPU-Treibern/Laufzeiten fehlen noch.
 Eine Kundenauslieferung benötigt weitere Betriebssystem-, Installations- und Sicherheitstests.
 
 ## Bauen und prüfen
@@ -185,7 +190,7 @@ Eine bereits ausgegebene Antwort lässt sich bei nachträglichem Speicherausfall
 der vorherige Annahmeeintrag bleibt als unvollständiger Vorgang nachvollziehbar.
 
 Der Gateway-Start wird erfasst. Agent-Registrierung, Token-Ausgabe und Widerruf werden zusätzlich mit Geräteidentität beziehungsweise lokalem OS-Benutzernamen protokolliert. Konfigurationsänderungen über eine Datei sind weiterhin keine personengebundenen Verwaltungsaktionen.
-Sie müssen bis zur Admin-Verwaltung betrieblich kontrolliert werden.
+Manuelle Dateiänderungen müssen betrieblich kontrolliert werden; Dashboard-Aktionen werden mit Administrator-Benutzer-ID protokolliert.
 
 SQLite im lokalen Datenverzeichnis betreiben, nicht auf einer Netzwerkfreigabe. Dienste ohne erhöhte Rechte ausführen.
 Unter Windows die ACL des Datenverzeichnisses auf das Dienstkonto und berechtigte Administratoren beschränken.

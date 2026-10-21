@@ -67,14 +67,16 @@ func Open(path string) (*Store, error) {
 		return nil, err
 	}
 	var version int
-	if err = db.QueryRow(`SELECT version FROM schema_version`).Scan(&version); err != nil || (version < 1 || version > 2) {
+	if err = db.QueryRow(`SELECT version FROM schema_version`).Scan(&version); err != nil || (version < 1 || version > 3) {
 		db.Close()
 		return nil, errors.New("unsupported audit schema")
 	}
 	_, err = db.Exec(`BEGIN IMMEDIATE;
  CREATE TABLE IF NOT EXISTS join_grants(hash TEXT PRIMARY KEY, descriptor TEXT NOT NULL, expires INTEGER NOT NULL, consumed INTEGER NOT NULL DEFAULT 0);
  CREATE TABLE IF NOT EXISTS devices(id TEXT PRIMARY KEY, descriptor TEXT NOT NULL, fingerprint TEXT NOT NULL, previous_fingerprint TEXT NOT NULL DEFAULT '', previous_until INTEGER NOT NULL DEFAULT 0, revoked INTEGER NOT NULL DEFAULT 0);
- UPDATE schema_version SET version=2;
+ CREATE TABLE IF NOT EXISTS management(node_id TEXT PRIMARY KEY, plan TEXT NOT NULL);
+ CREATE TABLE IF NOT EXISTS model_pins(id TEXT PRIMARY KEY, descriptor TEXT NOT NULL);
+ UPDATE schema_version SET version=3;
  COMMIT;`)
 	if err != nil {
 		db.Close()

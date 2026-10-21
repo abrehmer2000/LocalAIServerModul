@@ -209,3 +209,16 @@ func (p *Pool) Snapshot() []Status {
 	}
 	return out
 }
+
+// SetTransport replaces direct dialing for an enrolled outbound agent.
+func (p *Pool) SetTransport(id string, transport http.RoundTripper) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	for _, n := range p.nodes {
+		if n.Config.ID == id {
+			n.Client.CloseIdleConnections()
+			n.Client.Transport = transport
+			return
+		}
+	}
+}

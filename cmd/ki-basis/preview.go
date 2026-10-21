@@ -14,12 +14,17 @@ import (
 	"net/url"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 )
 
 // previewHandler exposes only status reads. Inference and control routes are never forwarded.
 func previewHandler(backend string, caFile string) (http.Handler, error) {
+	return browserHandler(backend, caFile, false)
+}
+
+func browserHandler(backend string, caFile string, management bool) (http.Handler, error) {
 	target, err := url.Parse(backend)
 	if err != nil || !config.IsLoopback(target.Hostname()) || (target.Scheme != "http" && target.Scheme != "https") || target.Path != "" || target.RawQuery != "" || target.User != nil || target.Fragment != "" {
 		return nil, errors.New("preview backend must be a loopback HTTP(S) origin")
@@ -36,7 +41,7 @@ func previewHandler(backend string, caFile string) (http.Handler, error) {
 		}
 		tc.RootCAs = roots
 	}
-	proxy := &httputil.ReverseProxy{Rewrite: func(pr *httputil.ProxyRequest) {
+	proxy := &httputil.ReverseProxy{FlushInterval: -1, Rewrite: func(pr *httputil.ProxyRequest) {
 		pr.SetURL(target)
 		pr.Out.Host = target.Host
 		pr.Out.Header.Del("Cookie")
@@ -44,7 +49,7 @@ func previewHandler(backend string, caFile string) (http.Handler, error) {
 		pr.Out.Header.Del("X-Forwarded-For")
 		pr.Out.Header.Del("X-Forwarded-Host")
 		pr.Out.Header.Del("X-Forwarded-Proto")
-	}, Transport: &http.Transport{Proxy: nil, TLSClientConfig: tc, DialContext: (&net.Dialer{Timeout: 3 * time.Second}).DialContext, ResponseHeaderTimeout: 10 * time.Second}, ModifyResponse: func(resp *http.Response) error {
+	}, Transport: &http.Transport{Proxy: nil, TLSClientConfig: tc, DialContext: (&net.Dialer{Timeout: 3 * time.Second}).DialContext, ResponseHeaderTimeout: 180 * time.Second}, ModifyResponse: func(resp *http.Response) error {
 		resp.Header.Set("Cache-Control", "no-store")
 		resp.Header.Del("Set-Cookie")
 		if resp.StatusCode >= 300 && resp.StatusCode < 400 {
@@ -54,6 +59,23 @@ func previewHandler(backend string, caFile string) (http.Handler, error) {
 	}, ErrorHandler: func(w http.ResponseWriter, r *http.Request, err error) { http.Error(w, "gateway unavailable", 503) }}
 	ui := webui.Handler()
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if management && (strings.HasPrefix(r.URL.Path, "/admin/") || r.URL.Path == "/v1/chat/completions") {
+			if r.Method != "GET" && r.Method != "POST" {
+				http.Error(w, "method not allowed", 405)
+				return
+			}
+			if r.URL.RawQuery != "" {
+				http.Error(w, "query not allowed", 400)
+				return
+			}
+			ctx, cancel := context.WithTimeout(r.Context(), 180*time.Second)
+			defer cancel()
+			_ = http.NewResponseController(w).SetWriteDeadline(time.Now().Add(185 * time.Second))
+			r = r.WithContext(ctx)
+			r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
+			proxy.ServeHTTP(w, r)
+			return
+		}
 		if r.URL.Path == "/healthz" || r.URL.Path == "/v1/models" || r.URL.Path == "/v1/status" {
 			if r.Method != "GET" || r.URL.RawQuery != "" {
 				http.Error(w, "method not allowed", 405)
@@ -73,11 +95,18 @@ func previewCommand(args []string) error {
 	flags := flag.NewFlagSet("web-preview", flag.ContinueOnError)
 	listen := flags.String("listen", "0.0.0.0:3000", "development preview listener")
 	backend := flags.String("backend", "https://127.0.0.1:8443", "local gateway origin")
+	management := flags.Bool("management", false, "enable dashboard management and API test forwarding (loopback only)")
 	ca := flags.String("ca", "", "gateway CA certificate")
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
-	handler, err := previewHandler(*backend, *ca)
+	if *management {
+		host, _, err := net.SplitHostPort(*listen)
+		if err != nil || !config.IsLoopback(host) {
+			return errors.New("management browser listener must be loopback")
+		}
+	}
+	handler, err := browserHandler(*backend, *ca, *management)
 	if err != nil {
 		return err
 	}

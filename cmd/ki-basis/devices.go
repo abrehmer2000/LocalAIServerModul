@@ -44,6 +44,7 @@ func deviceCommand(command string, args []string) error {
 	upstream := flags.String("upstream-model", catalog.DefaultAlias, "engine model alias")
 	revision := flags.String("revision", "", "model and engine revision")
 	modelHash := flags.String("model-sha256", "", "model file SHA-256 for managed engine")
+	connection := flags.String("connection", "direct", "agent connection mode: direct or outbound")
 	capacity := flags.Int("capacity", 1, "maximum concurrent inference requests")
 	if err := flags.Parse(args); err != nil {
 		return err
@@ -67,7 +68,10 @@ func deviceCommand(command string, args []string) error {
 	defer cancel()
 	switch command {
 	case "join-token":
-		n := config.Node{ID: *id, URL: *address, Model: *model, UpstreamModel: *upstream, Revision: *revision, Capacity: *capacity, ModelSHA256: *modelHash}
+		if *connection == "outbound" && *address == "" {
+			*address = "https://agent.invalid"
+		}
+		n := config.Node{Connection: *connection, ID: *id, URL: *address, Model: *model, UpstreamModel: *upstream, Revision: *revision, Capacity: *capacity, ModelSHA256: *modelHash}
 		if err = config.ValidateNode(n); err != nil {
 			return err
 		}
@@ -144,6 +148,13 @@ func agentCommand(args []string) error {
 		return err
 	}
 	defer runner.Close()
+	stateInfo, err := agent.Load(*state)
+	if err != nil {
+		return err
+	}
+	if stateInfo.Identity.Node.Connection == "outbound" {
+		return runOutboundAgent(ctx, runner, *binary, *model, *contextSize)
+	}
 	tlsConfig, err := runner.TLSConfig()
 	if err != nil {
 		return err
@@ -200,4 +211,28 @@ func agentCommand(args []string) error {
 		}
 		return err
 	}
+}
+
+func runOutboundAgent(ctx context.Context, r *agent.Runner, binary, model string, contextSize int) error {
+	work, cancel := context.WithCancel(ctx)
+	defer cancel()
+	hbDone := make(chan struct{})
+	go func() {
+		defer close(hbDone)
+		r.RunHeartbeats(work, func(err error) { slog.Warn("heartbeat failed", "reason", err) })
+	}()
+	engineDone := make(chan error, 1)
+	if binary != "" {
+		go func() { err := r.RunEngine(work, binary, model, contextSize); engineDone <- err; cancel() }()
+	} else {
+		engineDone <- nil
+	}
+	slog.Info("agent outbound connection started")
+	r.RunOutbound(work, func(err error) { slog.Warn("outbound connection failed", "reason", err) })
+	cancel()
+	<-hbDone
+	withdraw, done := context.WithTimeout(context.Background(), 3*time.Second)
+	defer done()
+	_ = r.Heartbeat(withdraw, false)
+	return <-engineDone
 }

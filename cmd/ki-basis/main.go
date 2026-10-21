@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"flag"
+	"fmt"
 	"localaiserver/internal/audit"
 	"localaiserver/internal/config"
 	"localaiserver/internal/control"
@@ -22,17 +23,24 @@ import (
 )
 
 func main() {
-	if err := run(); err != nil {
+	if err := run(); err != nil && !errors.Is(err, flag.ErrHelp) {
 		slog.Error("command failed", "error", err)
 		os.Exit(1)
 	}
 }
 func run() error {
 	if len(os.Args) < 2 {
-		return errors.New("usage: ki-basis serve | keygen | audit-verify | audit-export | init-tls | join-token | node-list | node-revoke | agent")
+		return agentUICommand(nil)
 	}
 	command := os.Args[1]
 	switch command {
+	case "admin-key":
+		return adminKeyCommand(os.Args[2:])
+	case "agent-ui":
+		return agentUICommand(os.Args[2:])
+	case "--help", "-h", "help":
+		fmt.Fprintln(os.Stdout, "KI-Basis: serve | quickstart | agent-ui | agent join|run | keygen | audit-verify | audit-export | init-tls | join-token | node-list | node-revoke | admin-key")
+		return nil
 	case "quickstart":
 		return quickstartCommand(os.Args[2:])
 	case "web-preview":
@@ -43,6 +51,13 @@ func run() error {
 		return deviceCommand(command, os.Args[2:])
 	}
 	if command == "keygen" {
+		if len(os.Args) > 2 {
+			if os.Args[2] == "--help" || os.Args[2] == "-h" {
+				fmt.Fprintln(os.Stdout, "keygen: creates a new API key and SHA-256 as JSON; redirect stdout to a private file")
+				return nil
+			}
+			return errors.New("keygen accepts no arguments")
+		}
 		var b [32]byte
 		if _, err := rand.Read(b[:]); err != nil {
 			return err
@@ -100,9 +115,11 @@ func run() error {
 		}
 		mux := http.NewServeMux()
 		mux.Handle("/internal/", controller.Handler())
+		mux.Handle("/admin/", g.Admin(controller.AdminHandler()))
 		mux.Handle("/", g.Handler())
 		server.Handler = mux
 		server.TLSConfig = controller.TLSConfig()
+		defer controller.Close()
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()

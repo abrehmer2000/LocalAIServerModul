@@ -470,3 +470,30 @@ func (g *Gateway) status(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, 200, map[string]any{"nodes": g.pool.Snapshot(), "models": g.pool.Models()})
 }
+
+// Admin separates management privileges from ordinary inference API credentials.
+func (g *Gateway) Admin(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		e, ok := g.identify(w, r)
+		if !ok {
+			return
+		}
+		allowed := false
+		for _, k := range g.cfg.Keys {
+			if k.ID == e.KeyID && k.Admin {
+				allowed = true
+			}
+		}
+		if !allowed {
+			g.reject(w, e, 403, "admin_required", "Administrator key required")
+			return
+		}
+		// Bearer headers are never attached automatically by browsers. Reject cross-site mutations too.
+		if r.Method != "GET" && r.Header.Get("Sec-Fetch-Site") == "cross-site" {
+			g.reject(w, e, 403, "cross_site_request", "Same-origin request required")
+			return
+		}
+		e.Actor = "admin:" + e.UserID
+		next.ServeHTTP(w, r.WithContext(event.WithContext(r.Context(), e)))
+	})
+}
