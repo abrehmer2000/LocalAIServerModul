@@ -89,7 +89,23 @@ func Open(path string) (*Store, error) {
 	}
 	return s, nil
 }
-func (s *Store) Close() error      { return s.db.Close() }
+
+// Close drains the single database connection before returning. A canceled SQL
+// transaction may still be rolling back after its caller returned; sql.DB.Close
+// alone does not wait for that borrowed connection to release its file handle.
+// Callers must stop request/monitor goroutines before closing their store.
+func (s *Store) Close() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	conn, err := s.db.Conn(ctx)
+	if err != nil {
+		return errors.Join(ctx.Err(), s.db.Close())
+	}
+	closeErr := s.db.Close()
+	return errors.Join(closeErr, conn.Close())
+}
 func digest(payload []byte) string { v := sha256.Sum256(payload); return hex.EncodeToString(v[:]) }
 func (s *Store) Append(ctx context.Context, e Event) error {
 	s.mu.Lock()
