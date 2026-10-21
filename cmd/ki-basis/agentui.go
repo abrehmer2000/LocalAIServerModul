@@ -32,6 +32,8 @@ type agentSettings struct {
 	Models        string `json:"models"`
 }
 type localAgent struct {
+	tunnel   managedTunnel
+	remoteMu sync.Mutex
 	mu       sync.Mutex
 	dir      string
 	runner   *agent.Runner
@@ -111,11 +113,18 @@ func agentUICommand(args []string) error {
 	if err = os.MkdirAll(absolute, 0700); err != nil {
 		return err
 	}
+	if link, ok := reuseSetupSession(absolute); ok {
+		fmt.Fprintln(os.Stdout, "Agent-Einrichtung (bereits geöffnet):", link)
+		if *launch {
+			openBrowser(link)
+		}
+		return nil
+	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	a := &localAgent{dir: absolute, ctx: ctx, settings: agentSettings{Engine: "http://127.0.0.1:8082", Models: filepath.Join(absolute, "models")}}
 	exe, _ := os.Executable()
-	for _, candidate := range []string{filepath.Join(filepath.Dir(exe), "llama-server"), filepath.Join(filepath.Dir(exe), "llama-server.exe"), "/workspace/llama.cpp/build/bin/llama-server"} {
+	for _, candidate := range []string{filepath.Join(filepath.Dir(exe), "llama-server"), filepath.Join(filepath.Dir(exe), "llama-server.exe"), filepath.Join(filepath.Dir(exe), "runtime", "llama-server"), filepath.Join(filepath.Dir(exe), "runtime", "llama-server.exe"), "/workspace/llama-runtime/llama-server", "/workspace/llama.cpp/build/bin/llama-server"} {
 		if _, e := os.Stat(candidate); e == nil {
 			a.settings.Binary = candidate
 			break
@@ -128,6 +137,16 @@ func agentUICommand(args []string) error {
 	if data, e := os.ReadFile(settingsPath); e == nil {
 		if err = json.Unmarshal(data, &a.settings); err != nil {
 			return err
+		}
+	}
+	if _, e := os.Stat(settingsPath); os.IsNotExist(e) {
+		for port := 8082; port < 8182; port++ {
+			listener, e := net.Listen("tcp", net.JoinHostPort("127.0.0.1", fmt.Sprint(port)))
+			if e == nil {
+				listener.Close()
+				a.settings.Engine = fmt.Sprintf("http://127.0.0.1:%d", port)
+				break
+			}
 		}
 	}
 	if err = a.start(); err != nil {
@@ -145,16 +164,51 @@ func agentUICommand(args []string) error {
 	}
 	token := hex.EncodeToString(random[:])
 	listener, err := net.Listen("tcp", net.JoinHostPort("127.0.0.1", fmt.Sprint(*port)))
+	if err != nil && *port == 3100 {
+		// Keep explicit custom ports strict; the default may choose another free setup port.
+		listener, err = net.Listen("tcp", "127.0.0.1:0")
+	}
 	if err != nil {
 		return err
 	}
 	defer listener.Close()
 	address := "http://" + listener.Addr().String()
 	api := http.NewServeMux()
+	api.HandleFunc("POST /setup/quit", func(w http.ResponseWriter, r *http.Request) {
+		writeLocalJSON(w, 200, map[string]bool{"stopping": true})
+		go func() { time.Sleep(100 * time.Millisecond); stop() }()
+	})
+	api.HandleFunc("POST /setup/tunnel", a.connectTunnel)
+	api.HandleFunc("POST /setup/tunnel/disconnect", a.disconnectTunnel)
+	api.HandleFunc("POST /setup/tunnel/reconnect", func(w http.ResponseWriter, r *http.Request) {
+		raw, e := os.ReadFile(filepath.Join(a.dir, "central-tunnel.json"))
+		var p tunnelProfile
+		if e != nil || json.Unmarshal(raw, &p) != nil {
+			writeLocalJSON(w, 409, map[string]string{"error": "tunnel_profile_missing"})
+			return
+		}
+		if e = a.startTunnel(r.Context(), p); e != nil {
+			writeLocalJSON(w, 409, map[string]string{"error": e.Error()})
+			return
+		}
+		writeLocalJSON(w, 200, a.tunnelStatus())
+	})
+	api.HandleFunc("POST /setup/ssh/unlock", unlockSSHKey)
+	api.HandleFunc("POST /setup/pick-file", pickSetupFile)
+	api.HandleFunc("POST /setup/ssh/check", a.remoteCheck)
+	api.HandleFunc("POST /setup/ssh/install", a.remoteInstall)
+	api.HandleFunc("POST /setup/runtime", a.importRuntime)
+	api.HandleFunc("GET /setup/backup", a.backup)
+	api.HandleFunc("POST /setup/restore", a.restore)
+	sessionCookie := "ki_setup_" + fmt.Sprint(listener.Addr().(*net.TCPAddr).Port)
+	api.HandleFunc("POST /setup/session", func(w http.ResponseWriter, r *http.Request) {
+		http.SetCookie(w, &http.Cookie{Name: sessionCookie, Value: token, Path: "/setup/", HttpOnly: true, SameSite: http.SameSiteStrictMode})
+		writeLocalJSON(w, 200, map[string]bool{"authenticated": true})
+	})
 	api.HandleFunc("GET /setup/status", func(w http.ResponseWriter, r *http.Request) {
 		a.mu.Lock()
 		defer a.mu.Unlock()
-		result := map[string]any{"connected": a.runner != nil, "settings": a.settings}
+		result := map[string]any{"connected": a.runner != nil, "settings": a.settings, "tunnel": a.tunnelStatus(), "data_directory": a.dir}
 		if a.runner != nil {
 			s, e := agent.Load(filepath.Join(a.dir, "agent.json"))
 			if e != nil {
@@ -165,6 +219,22 @@ func agentUICommand(args []string) error {
 			result["report"] = a.runner.Manager.Report()
 		}
 		writeLocalJSON(w, 200, result)
+	})
+	api.HandleFunc("POST /setup/check", func(w http.ResponseWriter, r *http.Request) {
+		a.mu.Lock()
+		defaults, registered := a.settings, a.runner != nil
+		a.mu.Unlock()
+		var in struct {
+			Settings agentSettings   `json:"settings"`
+			Bundle   *control.Bundle `json:"bundle,omitempty"`
+		}
+		decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 64<<10))
+		decoder.DisallowUnknownFields()
+		if decoder.Decode(&in) != nil || decoder.Decode(new(any)) != io.EOF {
+			writeLocalJSON(w, 400, map[string]string{"error": "invalid_request"})
+			return
+		}
+		writeLocalJSON(w, 200, inspectSetup(r.Context(), resolveSettings(in.Settings, defaults), in.Bundle, registered))
 	})
 	api.HandleFunc("POST /setup/connect", func(w http.ResponseWriter, r *http.Request) {
 		a.mu.Lock()
@@ -334,8 +404,13 @@ func agentUICommand(args []string) error {
 			http.Error(w, "invalid host", 403)
 			return
 		}
-		if r.URL.Path == "/setup/status" || r.URL.Path == "/setup/connect" || r.URL.Path == "/setup/settings" || r.URL.Path == "/setup/autostart" {
+		if r.URL.Path == "/setup/quit" || r.URL.Path == "/setup/tunnel" || r.URL.Path == "/setup/tunnel/reconnect" || r.URL.Path == "/setup/tunnel/disconnect" || r.URL.Path == "/setup/ssh/unlock" || r.URL.Path == "/setup/pick-file" || r.URL.Path == "/setup/restore" || r.URL.Path == "/setup/ssh/check" || r.URL.Path == "/setup/ssh/install" || r.URL.Path == "/setup/session" || r.URL.Path == "/setup/check" || r.URL.Path == "/setup/runtime" || r.URL.Path == "/setup/backup" || r.URL.Path == "/setup/status" || r.URL.Path == "/setup/connect" || r.URL.Path == "/setup/settings" || r.URL.Path == "/setup/autostart" {
 			supplied := r.Header.Get("X-Setup-Token")
+			if supplied == "" {
+				if cookie, e := r.Cookie(sessionCookie); e == nil {
+					supplied = cookie.Value
+				}
+			}
 			if subtle.ConstantTimeCompare([]byte(token), []byte(supplied)) != 1 {
 				http.Error(w, "setup token required", 401)
 				return
@@ -344,15 +419,41 @@ func agentUICommand(args []string) error {
 				http.Error(w, "invalid origin", 403)
 				return
 			}
-			api.ServeHTTP(w, r)
+			requestCtx, cancel := context.WithCancel(r.Context())
+			stopLink := context.AfterFunc(ctx, cancel)
+			defer func() { stopLink(); cancel() }()
+			api.ServeHTTP(w, r.WithContext(requestCtx))
 			return
 		}
 		webui.AgentHandler().ServeHTTP(w, r)
 	})
-	server := &http.Server{Handler: handler, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 30 * time.Second, WriteTimeout: 35 * time.Second, IdleTimeout: 30 * time.Second, MaxHeaderBytes: 16 << 10}
+	server := &http.Server{Handler: handler, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 180 * time.Second, WriteTimeout: 180 * time.Second, IdleTimeout: 30 * time.Second, MaxHeaderBytes: 16 << 10}
 	exit := make(chan error, 1)
 	go func() { exit <- server.Serve(listener) }()
 	setupURL := address + "/#" + token
+	sessionPath := filepath.Join(a.dir, ".ui-session.json")
+	sessionData, _ := json.Marshal(setupSession{address, token})
+	if e := writePrivate(sessionPath, sessionData); e != nil {
+		return e
+	}
+	defer os.Remove(sessionPath)
+	if raw, e := os.ReadFile(filepath.Join(a.dir, "central-tunnel.json")); e == nil {
+		var profile tunnelProfile
+		if json.Unmarshal(raw, &profile) == nil && profile.Target.valid() {
+			a.tunnel.mu.Lock()
+			a.tunnel.State = "reconnecting"
+			a.tunnel.mu.Unlock()
+			go func() {
+				if a.startTunnel(ctx, profile) != nil {
+					a.tunnel.mu.Lock()
+					if a.tunnel.cancel == nil {
+						a.tunnel.State = "disconnected"
+					}
+					a.tunnel.mu.Unlock()
+				}
+			}()
+		}
+	}
 	fmt.Fprintln(os.Stdout, "Agent-Einrichtung (nur lokal):", setupURL)
 	if *launch {
 		openBrowser(setupURL)

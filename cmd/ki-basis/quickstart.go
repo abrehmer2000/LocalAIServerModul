@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -19,6 +20,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 )
@@ -39,14 +41,16 @@ func localConfiguration(dir string, port int) (config.Config, string, error) {
 		if e != nil {
 			return c, "", e
 		}
-		var access struct {
-			Key string `json:"key"`
-		}
-		if raw, e := os.ReadFile(filepath.Join(absolute, "access.json")); e == nil && json.Unmarshal(raw, &access) == nil {
-			hash := sha256.Sum256([]byte(access.Key))
-			for _, k := range existing.Keys {
-				if k.SHA256 == hex.EncodeToString(hash[:]) {
-					return existing, access.Key, nil
+		for _, name := range []string{"admin-access.json", "access.json", "new-api-key.json"} {
+			var access struct {
+				Key string `json:"key"`
+			}
+			if raw, e := os.ReadFile(filepath.Join(absolute, name)); e == nil && json.Unmarshal(raw, &access) == nil {
+				hash := sha256.Sum256([]byte(access.Key))
+				for _, k := range existing.Keys {
+					if k.SHA256 == hex.EncodeToString(hash[:]) {
+						return existing, access.Key, nil
+					}
 				}
 			}
 		}
@@ -147,7 +151,7 @@ func quickstartCommand(args []string) error {
 	if err != nil {
 		return err
 	}
-	frontend := &http.Server{Handler: preview, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, WriteTimeout: 20 * time.Second, IdleTimeout: 30 * time.Second}
+	frontend := &http.Server{Handler: preview, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, WriteTimeout: 185 * time.Second, IdleTimeout: 30 * time.Second}
 	backendListener, err := net.Listen("tcp", c.Listen)
 	if err != nil {
 		return err
@@ -175,7 +179,12 @@ func quickstartCommand(args []string) error {
 	}
 	fmt.Fprintf(os.Stdout, "\nKI-Basis lokale Vorschau\n\nBrowser: %s\nAPI-Key: %s\nBenutzer-ID: local-preview\n\nKeine Modellgewichte erforderlich. Beenden mit Ctrl+C.\n\n", address, key)
 	if *launch {
-		openBrowser(address)
+		browserURL := address
+		if strings.HasPrefix(key, "kb_") {
+			login, _ := json.Marshal(map[string]string{"key": key, "user": "local-preview"})
+			browserURL += "/#access=" + base64.RawURLEncoding.EncodeToString(login)
+		}
+		openBrowser(browserURL)
 	}
 	var result error
 	select {

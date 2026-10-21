@@ -37,9 +37,11 @@ func (s *Service) AdminHandler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /admin/overview", s.overview)
 	mux.HandleFunc("POST /admin/enroll", s.enroll)
+	mux.HandleFunc("POST /admin/nodes/{id}/test", s.testNode)
 	mux.HandleFunc("POST /admin/nodes/{id}/action", s.action)
 	mux.HandleFunc("POST /admin/nodes/{id}/revoke", s.revoke)
 	mux.HandleFunc("GET /admin/audit", s.recentAudit)
+	mux.HandleFunc("GET /admin/backup", s.backup)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if event.FromContext(r.Context()).Actor == "" {
 			deny(w, 403)

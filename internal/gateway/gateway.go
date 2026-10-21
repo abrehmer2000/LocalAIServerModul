@@ -164,6 +164,9 @@ type chatRequest struct {
 	StreamOptions       *struct {
 		IncludeUsage bool `json:"include_usage"`
 	} `json:"stream_options,omitempty"`
+	ChatTemplate *struct {
+		EnableThinking *bool `json:"enable_thinking,omitempty"`
+	} `json:"chat_template_kwargs,omitempty"`
 	User string `json:"user,omitempty"`
 	N    *int   `json:"n,omitempty"`
 }

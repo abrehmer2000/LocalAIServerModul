@@ -77,6 +77,15 @@ func (p *Pool) Models() []string {
 	return out
 }
 func (p *Pool) Acquire(model string) (*Node, func(bool)) {
+	return p.acquire(model, "")
+}
+
+// AcquireID reserves a specific server for a setup test with the same capacity,
+// revocation and health checks used for normal inference.
+func (p *Pool) AcquireID(id string) (*Node, func(bool)) {
+	return p.acquire("", id)
+}
+func (p *Pool) acquire(model, id string) (*Node, func(bool)) {
 	p.mu.Lock()
 	snapshot := append([]*Node(nil), p.nodes...)
 	p.mu.Unlock()
@@ -92,7 +101,7 @@ func (p *Pool) Acquire(model string) (*Node, func(bool)) {
 	for i := 0; i < len(p.nodes); i++ {
 		j := (p.cursor + i) % len(p.nodes)
 		n := p.nodes[j]
-		if n.Config.Model != model || (n.dynamic && (!n.ready || !time.Now().Before(n.leaseUntil) || !allowed[n])) || n.active >= n.Config.Capacity || time.Now().Before(n.failedUntil) {
+		if (id == "" && n.Config.Model != model) || (id != "" && n.Config.ID != id) || (n.dynamic && (!n.ready || !time.Now().Before(n.leaseUntil) || !allowed[n])) || n.active >= n.Config.Capacity || time.Now().Before(n.failedUntil) {
 			continue
 		}
 		if best < 0 || n.active*p.nodes[best].Config.Capacity < p.nodes[best].active*n.Config.Capacity {

@@ -41,6 +41,7 @@ func (r *Runner) RunEngine(ctx context.Context, binary, model string, contextSiz
 	}
 	for attempt := 0; attempt < 5; attempt++ {
 		cmd := exec.CommandContext(ctx, binary, "--model", model, "--alias", n.UpstreamModel, "--host", u.Hostname(), "--port", port, "--ctx-size", strconv.Itoa(contextSize), "--parallel", strconv.Itoa(n.Capacity))
+		cmd.Env = RuntimeEnvironment(binary)
 		configureProcess(cmd)
 		cmd.Cancel = func() error { return killProcessTree(cmd) }
 		cmd.WaitDelay = 3 * time.Second

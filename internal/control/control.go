@@ -44,6 +44,7 @@ type Heartbeat struct {
 	Ready  bool               `json:"ready"`
 }
 type Service struct {
+	config      config.Config
 	gatewayCert *x509.Certificate
 	reports     map[string]management.Report
 	broker      *tunnel.Broker
@@ -81,7 +82,7 @@ func New(c config.Config, store *audit.Store, p *pool.Pool) (*Service, error) {
 	if _, err = cert.Verify(x509.VerifyOptions{Roots: roots, KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth}}); err != nil {
 		return nil, err
 	}
-	s := &Service{gatewayCert: cert, reports: map[string]management.Report{}, broker: tunnel.New(), store: store, pool: p, authority: a, states: map[string]bool{}, seen: map[string]time.Time{}, clientTLS: &tls.Config{MinVersion: tls.VersionTLS12, RootCAs: roots, ClientCAs: roots, Certificates: []tls.Certificate{pair}}}
+	s := &Service{config: c, gatewayCert: cert, reports: map[string]management.Report{}, broker: tunnel.New(), store: store, pool: p, authority: a, states: map[string]bool{}, seen: map[string]time.Time{}, clientTLS: &tls.Config{MinVersion: tls.VersionTLS12, RootCAs: roots, ClientCAs: roots, Certificates: []tls.Certificate{pair}}}
 	devices, err := store.Devices(context.Background())
 	if err != nil {
 		return nil, err
@@ -391,7 +392,7 @@ func (s *Service) agentEvent(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		Action string `json:"action"`
 	}
-	allowed := map[string]bool{"settings_change_requested": true, "settings_changed": true, "autostart_enable_requested": true, "autostart_disable_requested": true, "autostart_enabled": true, "autostart_disabled": true}
+	allowed := map[string]bool{"backup_export_requested": true, "settings_change_requested": true, "settings_changed": true, "autostart_enable_requested": true, "autostart_disable_requested": true, "autostart_enabled": true, "autostart_disabled": true}
 	if decode(w, r, &in) != nil || !allowed[in.Action] {
 		deny(w, 400)
 		return

@@ -3,6 +3,15 @@
 Erste Implementierung eines OpenAI-kompatiblen Gateways für getrennte Kundeninstallationen.
 Go, SQLite und vorhandene Inferenz-Engines; keine Usecase-Bewertung, keine Software-Lizenzprüfung, keine Telemetrie.
 
+## Geführte Einrichtung
+
+Für die Bedienung ohne eingegebene Terminalbefehle siehe
+[SETUP-ASSISTENT.md](SETUP-ASSISTENT.md): fünf Schritte in der Zentrale,
+lokale Agent-Einrichtung mit Vorprüfung, anbieterneutraler Linux-SSH-Assistent,
+verwaltete SSH-Tunnel sowie Sicherung und Agent-Wiederherstellung.
+Die Unterstützung und noch vorhandenen Grenzen sind dort einzeln aufgeführt.
+Der Umfang wird jetzt eingefroren; Freigabekriterien und die nächsten Schritte stehen im [Produktionsplan](PRODUCTION-PLAN.md).
+
 ## Aktueller Umfang
 
 - `POST /v1/chat/completions`: Textnachrichten, JSON-Antworten und echtes SSE-Streaming.
@@ -24,7 +33,7 @@ Modell-Downloads mit Fortschritt und SHA-256-Prüfung, Start/Stopp eigener Model
 Audit-Ansicht und einen Streaming-API-Test. Administratorrechte sind von Anwendungs-Keys getrennt.
 Die lokale Agenteneinrichtung öffnet sich per Starter im Browser. Siehe [DASHBOARD-SETUP.md](DASHBOARD-SETUP.md).
 Vollständige Benutzerkontenverwaltung, zusätzliche Downloadkataloge, Embeddings, Tool-Calling,
-signierte Systeminstaller und die automatische Installation von GPU-Treibern/Laufzeiten fehlen noch.
+signierte Systeminstaller sowie automatische GPU-Treiberinstallation und eine automatische Auswahl vertrauenswürdiger Laufzeit-Downloads fehlen noch. Vom Betreiber ausgewählte Laufzeitarchive können bereits importiert werden.
 Eine Kundenauslieferung benötigt weitere Betriebssystem-, Installations- und Sicherheitstests.
 
 ## Bauen und prüfen

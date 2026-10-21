@@ -177,6 +177,7 @@ func (m *ModelManager) execute(ctx context.Context, p management.Plan) {
 	// The binary is a local operator setting, never supplied by the gateway or a model repository.
 	for attempt := 0; attempt < 5 && ctx.Err() == nil; attempt++ {
 		cmd := exec.CommandContext(ctx, m.binary, "--model", path, "--alias", m.alias, "--host", u.Hostname(), "--port", u.Port(), "--ctx-size", "2048", "--parallel", strconv.Itoa(m.capacity), "--n-gpu-layers", layers)
+		cmd.Env = RuntimeEnvironment(m.binary)
 		configureProcess(cmd)
 		cmd.Cancel = func() error { return killProcessTree(cmd) }
 		cmd.WaitDelay = 3 * time.Second

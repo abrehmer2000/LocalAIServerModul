@@ -8,6 +8,12 @@ parser = argparse.ArgumentParser(
 parser.add_argument("--gateway", type=Path, required=True)
 parser.add_argument("--chromium", default="/usr/bin/chromium")
 parser.add_argument("--screenshot", type=Path)
+parser.add_argument(
+    "--runtime",
+    type=Path,
+    required=True,
+    help="A runnable local llama-server for setup inspection",
+)
 args = parser.parse_args()
 binary = str(args.gateway.resolve(strict=True))
 
@@ -42,7 +48,7 @@ with tempfile.TemporaryDirectory(prefix="ki-dashboard-") as temp:
             ],
             "central",
         )
-        start(
+        agent_process = start(
             [
                 "agent-ui",
                 "--dir",
@@ -97,6 +103,9 @@ with tempfile.TemporaryDirectory(prefix="ki-dashboard-") as temp:
             page.locator("#add-server").evaluate("(e)=>e.open=true")
             page.locator("#server-name").fill("browser-node")
             page.locator("#gateway-address").fill(f"https://127.0.0.1:{gp}")
+            page.locator("#loopback-ack").check()
+            page.locator("#server-next").click()
+            page.locator("#server-next").click()
             page.locator("#enroll-button").click()
             page.locator("#bundle-download").wait_for(state="visible")
             with page.expect_download() as pending:
@@ -107,16 +116,98 @@ with tempfile.TemporaryDirectory(prefix="ki-dashboard-") as temp:
             setup.on("pageerror", lambda e: errors.append(str(e)))
             setup.goto(agent_url)
             setup.locator("#bundle").set_input_files(str(bundle))
+            setup.wait_for_function(
+                "() => document.getElementById('bundle-info').textContent.includes('browser-node')"
+            )
+            setup.locator("#agent-next").click()
+            setup.locator("#advanced-settings").evaluate("(e)=>e.open=true")
+            setup.locator("#binary").fill(str(args.runtime.resolve(strict=True)))
+            setup.locator("#agent-next").click()
+            setup.locator("#run-checks").click()
+            try:
+                setup.wait_for_function(
+                    "() => !document.getElementById('agent-next').disabled",
+                    timeout=20000,
+                )
+            except Exception:
+                print(setup.locator("#setup-checks").inner_text())
+                print(setup.locator("#result").inner_text())
+                raise
+            setup.locator("#agent-next").click()
             setup.locator("#submit").click()
             setup.wait_for_function(
                 "() => document.getElementById('result').textContent.includes('Verbunden')",
                 timeout=15000,
             )
+            setup.reload()
+            setup.locator("#edit-settings").wait_for(state="visible")
+            setup.locator("#edit-settings").click()
             setup.locator("#save-settings").click()
             setup.wait_for_function(
                 "() => document.getElementById('result').textContent.includes('Einstellungen gespeichert')"
             )
-            page.locator("#refresh").click()
+            with setup.expect_download() as backup_pending:
+                setup.locator("#backup-agent").click()
+            backup_pending.value.save_as(root / "agent-backup.zip")
+            with page.expect_download() as backup_pending:
+                page.locator("#backup-central").click()
+            backup_pending.value.save_as(root / "central-backup.zip")
+            # Restore the ZIP snapshots, not just their gzip/container checksums.
+            subprocess.run(
+                [
+                    binary,
+                    "restore",
+                    "--archive",
+                    str(root / "central-backup.zip"),
+                    "--dir",
+                    str(root / "restored-central"),
+                ],
+                check=True,
+            )
+            verified = subprocess.check_output(
+                [
+                    binary,
+                    "audit-verify",
+                    "--config",
+                    str(root / "restored-central/config.json"),
+                ]
+            )
+            assert json.loads(verified)["valid"]
+            agent_process.terminate()
+            agent_process.wait(timeout=10)
+            restored_port = port()
+            start(
+                [
+                    "agent-ui",
+                    "--dir",
+                    str(root / "restored-agent"),
+                    "--port",
+                    str(restored_port),
+                    "--open-browser=false",
+                ],
+                "restored-agent",
+            )
+            for _ in range(100):
+                restored_log = root / "restored-agent.log"
+                if restored_log.exists() and "/#" in restored_log.read_text():
+                    break
+                time.sleep(0.1)
+            restored_page = browser.new_page()
+            restored_page.on("pageerror", lambda e: errors.append(str(e)))
+            restored_page.goto(restored_log.read_text().strip().split()[-1])
+            restored_page.locator("#restore-file").locator("..").evaluate(
+                "(e)=>e.open=true"
+            )
+            restored_page.locator("#restore-file").set_input_files(
+                str(root / "agent-backup.zip")
+            )
+            restored_page.locator("#restore-confirm").check()
+            restored_page.locator("#restore-agent").click()
+            restored_page.wait_for_function(
+                "() => document.getElementById('result').textContent.includes('wiederhergestellt')",
+                timeout=15000,
+            )
+            page.locator("#refresh-top").click()
             page.locator("#managed-devices").get_by_role(
                 "heading", name="browser-node"
             ).wait_for()
@@ -126,7 +217,7 @@ with tempfile.TemporaryDirectory(prefix="ki-dashboard-") as temp:
             )
             if args.screenshot:
                 page.screenshot(path=str(args.screenshot), full_page=True)
-            page.locator("#disconnect").click()
+            page.locator("#disconnect-top").click()
             assert page.locator("#admin-tools").is_hidden()
             assert page.locator("#audit-rows").text_content() == ""
             assert not errors, errors
@@ -135,6 +226,12 @@ with tempfile.TemporaryDirectory(prefix="ki-dashboard-") as temp:
             json.dumps(
                 {
                     "browser_enrollment": True,
+                    "guided_steps": True,
+                    "runtime_preflight": True,
+                    "reload_keeps_setup_session": True,
+                    "agent_and_central_backup": True,
+                    "agent_gui_restore": True,
+                    "central_restore_audit_verified": True,
                     "real_mtls_join": True,
                     "agent_ui_import": True,
                     "audit_visible": True,

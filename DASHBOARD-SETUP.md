@@ -1,3 +1,5 @@
+> Neuer geführter Ablauf: [SETUP-ASSISTENT.md](SETUP-ASSISTENT.md). Die folgenden Kommandozeilen-Schritte bleiben als administrative Alternative und für bestehende Pilotinstallationen erhalten.
+
 # Dashboard und weitere Server (Pilot)
 
 Diese Version erweitert die bestehende Installation. Das Mieten und Bereitstellen

@@ -1,6 +1,9 @@
 "use strict";
 (() => {
   const byId = (id) => document.getElementById(id);
+  let startupFragment = location.hash;
+  if (startupFragment)
+    history.replaceState(null, "", location.pathname + location.search);
   let apiKey = "";
   let userId = "";
   let loading = false;
@@ -8,10 +11,14 @@
   let bundleURL = "";
   let adminAllowed = false;
   let inferenceController = null;
+  let setupStep = 0;
+  let setupNode = "";
+  let latestOverview = null;
   const gpuChoices = new Map();
   const pendingActions = new Set();
   const message = (text, error = false) => {
     byId("connection-message").textContent = text;
+    byId("dashboard-message").textContent = text;
     byId("connection-message").classList.toggle("error", error);
   };
   async function health() {
@@ -31,6 +38,8 @@
     }
   }
   function clear() {
+    document.body.classList.remove("connected-dashboard");
+    byId("dashboard-nav").hidden = true;
     session += 1;
     apiKey = "";
     userId = "";
@@ -53,9 +62,13 @@
     byId("admin-access-note").textContent = "";
     byId("admin-tools").hidden = true;
     byId("audit-panel").hidden = true;
+    byId("backup-panel").hidden = true;
     byId("managed-devices").replaceChildren();
     byId("audit-rows").replaceChildren();
     byId("bundle-download").hidden = true;
+    setupNode = "";
+    latestOverview = null;
+    showServerStep(0);
     adminAllowed = false;
     if (bundleURL) {
       URL.revokeObjectURL(bundleURL);
@@ -87,6 +100,9 @@
       }
       const data = await response.json();
       if (currentSession !== session) return;
+      document.body.classList.add("connected-dashboard");
+      byId("dashboard-nav").hidden = false;
+      byId("signed-in-as").textContent = " · " + userId;
       byId("ready-count").textContent = data.nodes.filter(
         (node) => node.state === "ready",
       ).length;
@@ -108,7 +124,7 @@
       if (!data.nodes.length) {
         byId("nodes").className = "empty";
         byId("nodes").textContent =
-          "Noch keine Modellserver angemeldet. Füge den ersten Agenten per Join-Token hinzu.";
+          "Noch keine Modellserver angemeldet. Öffne unten „Server hinzufügen“.";
       }
       for (const node of data.nodes) {
         const row = document.createElement("div");
@@ -173,6 +189,10 @@
       "Dieser Server verwendet noch den direkten Verbindungsmodus. Für Modellverwaltung einen neuen Agenten im ausgehenden Modus anmelden.",
     model_not_in_catalog:
       "Dieses Modell ist noch nicht im Downloadkatalog enthalten.",
+    node_not_ready_or_busy:
+      "Der Server ist noch nicht bereit oder bearbeitet gerade eine Anfrage. Kurz warten und erneut prüfen.",
+    node_test_no_complete_answer:
+      "Es kam keine vollständige Textantwort an. Laufzeit und Ausgabelimit prüfen und den Test wiederholen.",
     model_hash_conflict:
       "Die Modelldatei stimmt nicht mit der Anmeldung überein.",
   };
@@ -186,7 +206,7 @@
       },
       body: body ? JSON.stringify(body) : undefined,
       cache: "no-store",
-      signal: AbortSignal.timeout(30000),
+      signal: AbortSignal.timeout(path.endsWith("/test") ? 60000 : 30000),
     });
     const data = await response.json();
     if (!response.ok) {
@@ -232,16 +252,20 @@
       if (currentSession === session) {
         byId("admin-tools").hidden = true;
         byId("audit-panel").hidden = true;
+        byId("backup-panel").hidden = true;
         byId("admin-access-note").textContent =
           "Verwaltung benötigt einen Administratorzugang und einen aktivierten Dashboard-Endpunkt.";
       }
       return;
     }
     if (currentSession !== session) return;
+    latestOverview = data;
+    updateSetup(data);
     adminAllowed = true;
     byId("admin-access-note").textContent = "Administratorzugang aktiv.";
     byId("admin-tools").hidden = false;
     byId("audit-panel").hidden = false;
+    byId("backup-panel").hidden = false;
     if (!byId("gateway-address").value && location.protocol === "https:")
       byId("gateway-address").value = location.origin;
     const container = byId("managed-devices");
@@ -279,6 +303,7 @@
         byId("server-model").value = device.model;
         byId("server-revision").value = device.revision;
         byId("server-capacity").value = "1";
+        showServerStep(0);
         byId("server-name").focus();
       });
       card.append(replicate);
@@ -287,6 +312,27 @@
         ? "Zugang gesperrt"
         : states[report.state] || "Warte auf Agentenmeldung";
       card.append(state);
+      if (!device.revoked && device.connection === "outbound") {
+        const resume = document.createElement("button");
+        resume.type = "button";
+        resume.className = "secondary";
+        resume.textContent = "Einrichtung fortsetzen";
+        resume.addEventListener("click", () => {
+          setupNode = device.id;
+          byId("server-name").value = device.id;
+          byId("setup-finish").hidden = true;
+          byId("setup-test-result").textContent = "";
+          byId("add-server").open = true;
+          showServerStep(
+            data.nodes.find((n) => n.id === device.id)?.state === "ready"
+              ? 4
+              : 3,
+          );
+          updateSetup(data);
+          byId("add-server").scrollIntoView({ behavior: "smooth" });
+        });
+        card.append(resume);
+      }
       if (report.os) {
         const hardware = document.createElement("p");
         hardware.className = "muted";
@@ -296,7 +342,7 @@
           report.arch +
           " · " +
           report.cpus +
-          " CPU-Kerne" +
+          " vom System gemeldete CPU-Threads" +
           (report.gpu
             ? " · Erkannt: " +
               report.gpu +
@@ -398,6 +444,27 @@
             actions.append(button);
           }
           card.append(actions);
+          const test = document.createElement("button");
+          test.type = "button";
+          test.className = "secondary";
+          test.textContent = "Testantwort prüfen";
+          test.disabled = node?.state !== "ready";
+          test.addEventListener("click", async () => {
+            test.disabled = true;
+            try {
+              const result = await adminRequest(
+                "/admin/nodes/" + encodeURIComponent(device.id) + "/test",
+                {},
+              );
+              byId("admin-message").textContent =
+                device.id + ": " + result.message;
+            } catch (error) {
+              byId("admin-message").textContent = error.message;
+            } finally {
+              test.disabled = false;
+            }
+          });
+          card.append(test);
         }
         const revoke = document.createElement("button");
         revoke.type = "button";
@@ -422,17 +489,193 @@
             byId("admin-message").textContent = e.message;
           }
         });
-        card.append(revoke);
+        const danger = document.createElement("details");
+        danger.className = "danger-zone";
+        const summary = document.createElement("summary");
+        summary.textContent = "Zugang verwalten";
+        danger.append(summary, revoke);
+        card.append(danger);
       }
       container.append(card);
     }
   }
+  function showServerStep(step) {
+    setupStep = step;
+    document
+      .querySelectorAll("[data-server-step]")
+      .forEach(
+        (panel) => (panel.hidden = Number(panel.dataset.serverStep) !== step),
+      );
+    [...byId("server-steps").children].forEach((item, index) => {
+      item.classList.toggle("complete", index < step);
+      if (index === step) item.setAttribute("aria-current", "step");
+      else item.removeAttribute("aria-current");
+    });
+    byId("server-back").hidden = step === 0 || step >= 3;
+    byId("server-next").hidden = step === 4 || (step === 2 && !setupNode);
+    byId("server-next").disabled = step === 3;
+    byId("server-next").textContent =
+      [
+        "Weiter zur Modellauswahl",
+        "Weiter zur Anmeldung",
+        "Weiter zum Verbindungsstatus",
+        "Weiter zum Funktionstest",
+      ][step] || "Weiter";
+    byId("enroll-summary").textContent =
+      byId("server-name").value + " · " + byId("server-model").value;
+  }
+  function updateConnectionHelp() {
+    const kind = byId("connection-kind").value;
+    byId("connection-help").textContent =
+      kind === "ssh"
+        ? "Öffne den KI-Basis-Manager auf deinem Rechner und wähle „Anderen Linux-Server über SSH einrichten“. Zugang und Laufzeitpaket werden dort ausgewählt; die Verbindungsdatei erstellst du hier im nächsten Schritt."
+        : kind === "headless"
+          ? "Cloud-VM oder eigener Linux-Server: Das Agent-Paket einmalig über SSH oder Cloud-init starten. Danach erfolgt die Einrichtung im Browser. Alternativ den SSH-Assistenten im KI-Basis-Manager verwenden."
+          : kind === "local"
+            ? "Öffne das Agent-Paket auf dem Rechner der Zentrale. Die Laufzeit wird im Agent-Assistenten geprüft."
+            : "Öffne das Agent-Paket auf dem gewünschten Windows-, Linux- oder macOS-Rechner. Der Agent verbindet sich ausgehend; ein öffentlich erreichbarer Agent-Port ist nicht nötig.";
+    let loopback = false;
+    try {
+      loopback = ["127.0.0.1", "localhost", "[::1]"].includes(
+        new URL(byId("gateway-address").value).hostname,
+      );
+    } catch {}
+    byId("loopback-confirm").hidden = !loopback;
+  }
+  function updateSetup(data) {
+    if (!setupNode) return;
+    const device = data.devices.find((d) => d.id === setupNode);
+    const node = data.nodes.find((n) => n.id === setupNode);
+    const report = device?.report || {};
+    byId("setup-node-name").textContent = setupNode;
+    byId("setup-progress").textContent = device?.revoked
+      ? "Zugang gesperrt. Einen neuen Server anmelden."
+      : report.error
+        ? modelErrors[report.error] ||
+          "Einrichtung fehlgeschlagen. Agent-Einstellungen prüfen."
+        : report.os
+          ? states[report.state] || "Agent verbunden"
+          : "Warte auf den Agenten. Verbindungsdatei auf dem gewünschten Rechner öffnen.";
+    byId("setup-start").disabled =
+      !report.os ||
+      device?.revoked ||
+      ["downloading", "verifying", "starting", "running"].includes(
+        report.state,
+      );
+    byId("setup-download").hidden = !report.total;
+    byId("setup-download").max = report.total || 1;
+    byId("setup-download").value = report.downloaded || 0;
+    if (setupStep === 3) byId("server-next").disabled = node?.state !== "ready";
+  }
+  byId("server-next").addEventListener("click", () => {
+    if (setupStep === 0) {
+      updateConnectionHelp();
+      for (const id of ["server-name", "gateway-address"])
+        if (!byId(id).reportValidity()) return;
+      if (!byId("loopback-confirm").hidden && !byId("loopback-ack").checked) {
+        byId("loopback-ack").focus();
+        return;
+      }
+      const existing = latestOverview?.devices.find(
+        (d) => !d.revoked && d.model === byId("server-model").value,
+      );
+      if (existing) byId("server-revision").value = existing.revision;
+    }
+    if (setupStep === 1)
+      for (const id of ["server-model", "server-revision", "server-capacity"])
+        if (!byId(id).reportValidity()) return;
+    if (setupStep < 4) showServerStep(setupStep + 1);
+    if (latestOverview) updateSetup(latestOverview);
+  });
+  byId("server-back").addEventListener("click", () =>
+    showServerStep(Math.max(0, setupStep - 1)),
+  );
+  byId("connection-kind").addEventListener("change", updateConnectionHelp);
+  byId("gateway-address").addEventListener("input", updateConnectionHelp);
+  byId("setup-renew").addEventListener("click", () => showServerStep(2));
+  byId("setup-start").addEventListener("click", async () => {
+    byId("setup-start").disabled = true;
+    try {
+      await adminRequest(
+        "/admin/nodes/" + encodeURIComponent(setupNode) + "/action",
+        { action: "start", gpu: byId("setup-gpu").value },
+      );
+      byId("setup-progress").textContent =
+        "Auftrag gespeichert. Der Agent beginnt mit Download und Start.";
+    } catch (error) {
+      byId("setup-progress").textContent = error.message;
+      byId("setup-start").disabled = false;
+    }
+  });
+  byId("setup-test").addEventListener("click", async () => {
+    const current = session;
+    byId("setup-test").disabled = true;
+    byId("setup-test-result").textContent = "Testanfrage läuft …";
+    try {
+      const result = await adminRequest(
+        "/admin/nodes/" + encodeURIComponent(setupNode) + "/test",
+        {},
+      );
+      if (current !== session) return;
+      byId("setup-test-result").textContent = result.message;
+      byId("setup-finish").hidden = false;
+    } catch (error) {
+      if (current === session)
+        byId("setup-test-result").textContent = error.message;
+    } finally {
+      byId("setup-test").disabled = false;
+    }
+  });
+  byId("setup-finish").addEventListener("click", () => {
+    byId("add-server").open = false;
+    byId("managed-devices").scrollIntoView({ behavior: "smooth" });
+    setupNode = "";
+    showServerStep(0);
+  });
+  byId("new-server").addEventListener("click", () => {
+    if (!setupNode && setupStep === 0) {
+      const existing = new Set(
+        (latestOverview?.devices || []).map((d) => d.id),
+      );
+      let number = 1;
+      while (existing.has("server-" + String(number).padStart(2, "0")))
+        number++;
+      byId("server-name").value = "server-" + String(number).padStart(2, "0");
+    }
+    byId("add-server").open = true;
+    byId("add-server").scrollIntoView({ behavior: "smooth" });
+  });
+  byId("disconnect-top").addEventListener("click", clear);
+  byId("refresh-top").addEventListener("click", load);
+  for (const id of [
+    "server-name",
+    "gateway-address",
+    "server-model",
+    "server-revision",
+    "server-capacity",
+  ])
+    byId(id).addEventListener("input", () => {
+      if (setupStep >= 3 || !setupNode) return;
+      setupNode = "";
+      byId("bundle-download").hidden = true;
+      if (bundleURL) {
+        URL.revokeObjectURL(bundleURL);
+        bundleURL = "";
+      }
+      byId("enroll-result").textContent =
+        "Angaben geändert. Eine neue Verbindungsdatei erstellen.";
+      if (setupStep === 2) byId("server-next").hidden = true;
+    });
+  byId("enroll-server").noValidate = true;
+  showServerStep(0);
+  updateConnectionHelp();
   byId("enroll-server").addEventListener("submit", async (e) => {
     e.preventDefault();
     if (!adminAllowed) return;
     const s = session;
     byId("enroll-button").disabled = true;
     try {
+      if (setupStep !== 2) return;
       const bundle = await adminRequest("/admin/enroll", {
         id: byId("server-name").value,
         gateway: byId("gateway-address").value.replace(/\/$/, ""),
@@ -441,6 +684,10 @@
         capacity: Number(byId("server-capacity").value),
       });
       if (s !== session) return;
+      setupNode = bundle.node_id;
+      byId("setup-finish").hidden = true;
+      byId("setup-test-result").textContent = "";
+      byId("server-next").hidden = false;
       if (bundleURL) URL.revokeObjectURL(bundleURL);
       bundleURL = URL.createObjectURL(
         new Blob([JSON.stringify(bundle, null, 2)], {
@@ -457,6 +704,33 @@
       if (s === session) byId("enroll-result").textContent = error.message;
     } finally {
       byId("enroll-button").disabled = false;
+    }
+  });
+  byId("backup-central").addEventListener("click", async () => {
+    byId("backup-central").disabled = true;
+    const current = session;
+    try {
+      const response = await fetch("/admin/backup", {
+        headers: { Authorization: "Bearer " + apiKey, "X-User-ID": userId },
+        cache: "no-store",
+        signal: AbortSignal.timeout(60000),
+      });
+      if (!response.ok) throw Error("Sicherung konnte nicht erstellt werden.");
+      const blob = await response.blob();
+      if (current !== session) return;
+      const url = URL.createObjectURL(blob),
+        link = document.createElement("a");
+      link.href = url;
+      link.download = "ki-basis-zentrale-backup.zip";
+      link.click();
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
+      byId("backup-central-result").textContent =
+        "Sicherung heruntergeladen. Vertraulich aufbewahren und zusätzlich die Agent-Einstellungen sichern.";
+    } catch (error) {
+      if (current === session)
+        byId("backup-central-result").textContent = error.message;
+    } finally {
+      byId("backup-central").disabled = false;
     }
   });
   byId("load-audit").addEventListener("click", async () => {
@@ -518,6 +792,9 @@
           messages: [{ role: "user", content: byId("test-prompt").value }],
           stream: true,
           max_tokens: 1024,
+          ...(byId("test-model").value === "gemma-4-26b-a4b"
+            ? { chat_template_kwargs: { enable_thinking: false } }
+            : {}),
         }),
         signal: controller.signal,
       });
@@ -591,5 +868,30 @@
     void load();
   });
   byId("disconnect").addEventListener("click", clear);
+  if (startupFragment.startsWith("#access=")) {
+    try {
+      const raw = startupFragment
+        .slice(8)
+        .replace(/-/g, "+")
+        .replace(/_/g, "/");
+      const login = JSON.parse(atob(raw));
+      if (
+        typeof login.key === "string" &&
+        login.key.startsWith("kb_") &&
+        typeof login.user === "string"
+      ) {
+        apiKey = login.key;
+        userId = login.user;
+        byId("user-id").value = userId;
+        void load();
+      }
+    } catch {
+      message(
+        "Lokaler Zugang konnte nicht geöffnet werden. Zugangsdaten erneut eingeben.",
+        true,
+      );
+    }
+    startupFragment = "";
+  }
   void health();
 })();

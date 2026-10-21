@@ -162,3 +162,24 @@ Die Pilotanleitung steht in `PILOT-TEST.md`.
 - Windows-/Linux-Pakete enthalten Agent- und Zentralenstarter. Native Autostart-
   Integration, Desktopstarter und GPU-Laufzeiten benötigen weiterhin Tests auf
   den jeweiligen Zielrechnern. Cross-Builds sind keine nativen Betriebssystemtests.
+
+## Geführte Einrichtung und SSH-Manager
+
+Der anbieterneutrale Ablauf und seine Grenzen stehen in
+[SETUP-ASSISTENT.md](SETUP-ASSISTENT.md). Der Produktivumfang und offene
+Freigabekriterien stehen in [PRODUCTION-PLAN.md](PRODUCTION-PLAN.md).
+
+Zusätzliche Prüfungen:
+
+```sh
+node scripts/dashboard_stream_test.cjs
+python3 scripts/dashboard_smoke.py --gateway ./bin/ki-basis --runtime /pfad/zu/llama-server
+python3 scripts/ssh_setup_smoke.py --gateway ./bin/ki-basis --runtime-archive /pfad/zu/llama-runtime.tar.gz
+```
+
+Die Browser-/SSH-Tests brauchen freie Loopback-Ports. Der gewählte temporäre
+Datenträger muss die Vorprüfung für das Standardmodell bestehen (mindestens
+etwa 14,7 GB frei); bei Bedarf `TMPDIR` auf einen ausreichend großen Datenträger
+setzen. Das Laufzeitarchiv stammt im Test vom Betreiber, nicht aus einem
+ungeprüften automatischen Download. Der SSH-Test verwendet eigene kurzlebige
+Schlüssel und einen isolierten lokalen sshd, keine Cloud-Zugangsdaten.

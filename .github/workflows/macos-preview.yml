@@ -20,8 +20,18 @@ jobs:
           mkdir -p work/mac-preview/KI-Basis-Mac
           GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 go build -trimpath -o work/mac-preview/KI-Basis-Mac/ki-basis ./cmd/ki-basis
           python3 scripts/collect_licenses.py --output work/mac-preview/KI-Basis-Mac/THIRD-PARTY-NOTICES.txt
-          cp packaging/macos/Start.command packaging/macos/LIESMICH.txt work/mac-preview/KI-Basis-Mac/
-          chmod +x work/mac-preview/KI-Basis-Mac/ki-basis work/mac-preview/KI-Basis-Mac/Start.command
+          for arch in amd64 arm64; do
+            mkdir -p "work/mac-preview/KI-Basis-Mac/agents/linux-$arch"
+            GOOS=linux GOARCH="$arch" CGO_ENABLED=0 go build -trimpath -o "work/mac-preview/KI-Basis-Mac/agents/linux-$arch/ki-basis" ./cmd/ki-basis
+          done
+          cp packaging/macos/Start.command packaging/macos/Server-einrichten.command packaging/macos/LIESMICH.txt work/mac-preview/KI-Basis-Mac/
+          chmod +x work/mac-preview/KI-Basis-Mac/ki-basis work/mac-preview/KI-Basis-Mac/Start.command work/mac-preview/KI-Basis-Mac/Server-einrichten.command
+          cp SETUP-ASSISTENT.md work/mac-preview/KI-Basis-Mac/
+          app="work/mac-preview/KI-Basis-Mac/KI-Basis Manager.app/Contents"
+          mkdir -p "$app/MacOS"
+          cp work/mac-preview/KI-Basis-Mac/ki-basis "$app/MacOS/KI-Basis"
+          cp -R work/mac-preview/KI-Basis-Mac/agents "$app/MacOS/agents"
+          cp packaging/macos/Manager-Info.plist "$app/Info.plist"
           cd work/mac-preview
           zip -r KI-Basis-Mac-Apple-Silicon.zip KI-Basis-Mac
           shasum -a 256 KI-Basis-Mac-Apple-Silicon.zip > SHA256SUMS.txt

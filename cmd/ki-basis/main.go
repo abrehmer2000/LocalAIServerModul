@@ -29,17 +29,24 @@ func main() {
 	}
 }
 func run() error {
+	if os.Getenv("KI_BASIS_SSH_ASKPASS") == "1" {
+		return sshAskpass()
+	}
 	if len(os.Args) < 2 {
 		return agentUICommand(nil)
 	}
 	command := os.Args[1]
 	switch command {
+	case "restore":
+		return restoreCommand(os.Args[2:])
+	case "agent-bootstrap":
+		return agentBootstrapCommand(os.Args[2:])
 	case "admin-key":
 		return adminKeyCommand(os.Args[2:])
 	case "agent-ui":
 		return agentUICommand(os.Args[2:])
 	case "--help", "-h", "help":
-		fmt.Fprintln(os.Stdout, "KI-Basis: serve | quickstart | agent-ui | agent join|run | keygen | audit-verify | audit-export | init-tls | join-token | node-list | node-revoke | admin-key")
+		fmt.Fprintln(os.Stdout, "KI-Basis: serve | quickstart | agent-ui | agent-bootstrap | restore | agent join|run | keygen | audit-verify | audit-export | init-tls | join-token | node-list | node-revoke | admin-key")
 		return nil
 	case "quickstart":
 		return quickstartCommand(os.Args[2:])
