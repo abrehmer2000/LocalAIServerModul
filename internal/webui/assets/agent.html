@@ -116,6 +116,32 @@
             <div id="remote-agent-options">
               <label for="ssh-bundle">Verbindungsdatei aus der Zentrale</label
               ><input id="ssh-bundle" type="file" accept=".json" />
+              <label class="check-label"
+                ><input id="ssh-resume" type="checkbox" /> Vorhandene
+                Einrichtung fortsetzen (Identität und Einstellungen
+                erhalten)</label
+              >
+              <p>
+                Zum Fortsetzen dieselbe Verbindungsdatei für diesen Server
+                verwenden. Sie darf dann abgelaufen sein: Es wird kein neuer
+                Anmeldecode verbraucht. Dies ist kein Programmupdate.
+              </p>
+              <label for="ssh-network"
+                >Verbindung des Zielservers zur Zentrale</label
+              >
+              <select id="ssh-network">
+                <option value="https">
+                  Erreichbares HTTPS (direkt oder über vorhandenes VPN)
+                </option>
+                <option value="tunnel">
+                  Bereits eingerichteter Tunnel auf dem Zielserver
+                </option>
+              </select>
+              <p id="ssh-network-help">
+                Der Zielserver muss die Gateway-Adresse selbst erreichen. Der
+                Manager prüft die Verbindung dort, bevor er den Server anmeldet.
+                VPN, Firewall und Tunnel werden nicht automatisch verändert.
+              </p>
               <label for="ssh-runtime"
                 >Laufzeitpaket-Pfad auf dem Rechner dieses Assistenten
                 (optional)</label
@@ -146,8 +172,10 @@
                   Treiber oder Firewallregeln geändert. Ein Systemdienst wird
                   nur auf ausdrücklichen Wunsch und bei vorhandener
                   Unterstützung eingerichtet. Andernfalls läuft der Agent im
-                  Hintergrund; die Abschlussmeldung nennt den tatsächlichen
-                  Startmodus.
+                  Hintergrund. Ein angeforderter, aber fehlgeschlagener
+                  Systemdienst wird als Fehler angezeigt; es gibt keinen stillen
+                  Wechsel in Hintergrundbetrieb. Die Abschlussmeldung nennt den
+                  tatsächlichen Startmodus.
                 </p>
               </div>
             </div>
@@ -180,7 +208,12 @@
               Agent installieren und verbinden
             </button>
           </section>
-          <p id="ssh-result" role="status" aria-live="polite"></p>
+          <p
+            style="white-space: pre-line"
+            id="ssh-result"
+            role="status"
+            aria-live="polite"
+          ></p>
           <button type="button" id="ssh-back" class="secondary" hidden>
             Zurück
           </button>
@@ -229,9 +262,13 @@
                 Agent-Identität darf nicht auf zwei laufenden Rechnern verwendet
                 werden.
               </p>
-              <label for="restore-file">Agent-Sicherung (ZIP)</label
-              ><input id="restore-file" type="file" accept=".zip" /><label
-                class="check-label"
+              <label for="restore-file"
+                >Agent-Sicherung (ZIP oder alte Pilot-TAR.GZ)</label
+              ><input
+                id="restore-file"
+                type="file"
+                accept=".zip,.tar.gz,.tgz"
+              /><label class="check-label"
                 ><input id="restore-confirm" type="checkbox" /> Die vorherige
                 Agent-Instanz ist ausgeschaltet.</label
               ><button type="button" id="restore-agent" class="secondary">
@@ -327,6 +364,7 @@
       </section>
       <section class="panel" id="operation-panel" hidden>
         <h2>Betrieb und Sicherung</h2>
+        <p id="restart-mode" role="status"></p>
         <p id="autostart-description">
           Automatischen Start bei Benutzeranmeldung einrichten. Für
           unbeaufsichtigte Server ist ein Systemdienst erforderlich.
@@ -347,6 +385,39 @@
         </p>
         <p id="backup-result" role="status"></p>
       </section>
+      <details class="panel">
+        <summary>
+          Zentralen-Sicherung auf diesem Rechner wiederherstellen
+        </summary>
+        <p>
+          Für den Umzug oder eine Wiederherstellungsprüfung. Importiert einen
+          geprüften KI-Basis-Datenstand in einen leeren Ordner auf dem Rechner
+          dieses Managers. Start und Dienstverwaltung erfolgen separat. Dies
+          stellt keinen entfernten Cloudserver wieder her.
+        </p>
+        <label for="central-restore-file"
+          >Zentralen-Sicherung (ZIP oder alte Pilot-TAR.GZ)</label
+        ><input
+          id="central-restore-file"
+          type="file"
+          accept=".zip,.tar.gz,.tgz"
+        />
+        <label for="central-restore-dir"
+          >Vollständiger Pfad eines leeren Zielordners</label
+        ><input
+          id="central-restore-dir"
+          placeholder="Absoluter Ordnerpfad auf diesem Rechner"
+        />
+        <label class="check-label"
+          ><input id="central-restore-confirm" type="checkbox" /> Die bisherige
+          Zentrale ist ausgeschaltet. Ich starte keine zweite Instanz mit
+          denselben Identitäten.</label
+        >
+        <button id="restore-central" type="button">
+          Sicherung prüfen und Daten wiederherstellen
+        </button>
+        <p id="central-restore-result" role="status"></p>
+      </details>
       <details class="panel">
         <summary>Verbindungsstatus und technische Details</summary>
         <pre id="status">Wird geladen …</pre>

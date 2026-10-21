@@ -172,6 +172,25 @@ LogLevel VERBOSE
                 "capacity": 1,
             },
         )
+        # A failed target preflight must explain the missing network path without consuming enrollment.
+        bad_bundle = dict(bundle, gateway=f"https://127.0.0.1:{port()}")
+        try:
+            request(
+                manager + "/setup/ssh/install",
+                token,
+                {
+                    "target": target,
+                    "fingerprint": scan["fingerprint"],
+                    "bundle": bad_bundle,
+                    "runtime_archive": runtime_archive,
+                },
+            )
+            raise AssertionError("Unreachable gateway passed preflight")
+        except RuntimeError as error:
+            assert "setup_checks_failed" in str(error) and "connection" in str(
+                error
+            ), str(error)
+        assert not (home / ".local/share/KI-Basis/agent/agent.json").exists()
         result = request(
             manager + "/setup/ssh/install",
             token,
@@ -202,6 +221,39 @@ LogLevel VERBOSE
         assert (
             device["report"].get("os") == "linux"
         ), "Installed agent did not heartbeat"
+        # The same file can safely resume after expiry without re-enrollment.
+        identity_before = (state_dir / "agent.json").read_bytes()
+        expired = dict(bundle, expires_at="2000-01-01T00:00:00Z")
+        retry_body = {
+            "target": target,
+            "fingerprint": scan["fingerprint"],
+            "bundle": expired,
+            "resume": True,
+        }
+        resumed = request(manager + "/setup/ssh/install", token, retry_body)
+        assert resumed["connected"]
+        assert (state_dir / "agent.json").read_bytes() == identity_before
+        session = json.loads((state_dir / ".ui-session.json").read_text())
+        # Quit the remote process, then restart it through the exact same recovery path.
+        request(session["url"] + "/setup/quit", session["token"], {})
+        for _ in range(100):
+            if not (state_dir / ".ui-session.json").exists():
+                break
+            time.sleep(0.1)
+        resumed = request(manager + "/setup/ssh/install", token, retry_body)
+        assert resumed["connected"]
+        assert (state_dir / "agent.json").read_bytes() == identity_before
+        assert (
+            json.loads((state_dir / "deployment.json").read_text())["mode"] == "manual"
+        )
+        # A different identity must never replace this enrolled server.
+        wrong = dict(retry_body, bundle=dict(expired, node_id="different-node"))
+        try:
+            request(manager + "/setup/ssh/install", token, wrong)
+            raise AssertionError("Mismatched resume identity accepted")
+        except RuntimeError as error:
+            assert "agent_identity_mismatch" in str(error), str(error)
+        assert (state_dir / "agent.json").read_bytes() == identity_before
         tunnel = request(
             manager + "/setup/tunnel",
             token,
@@ -238,6 +290,9 @@ LogLevel VERBOSE
                 {
                     "managed_ssh_tunnel": True,
                     "single_instance_reuse": True,
+                    "safe_resume_and_restart": True,
+                    "target_network_diagnostics": True,
+                    "mismatched_identity_refused": True,
                     "real_openssh": True,
                     "host_key_verified": True,
                     "runtime_transfer_and_probe": True,

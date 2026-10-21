@@ -8,6 +8,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -77,10 +78,10 @@ func sshRun(ctx context.Context, t sshTarget, known, command string, input io.Re
 	cmd := exec.CommandContext(ctx, "ssh", append(sshArgs(t, known), command)...)
 	cmd.Stdin = input
 	// Do not return raw SSH output: it can contain local paths or remote startup messages.
-	var out bytes.Buffer
+	var out boundedSSHOutput
 	cmd.Stdout = &out
 	if e := cmd.Run(); e != nil {
-		return nil, errors.New("ssh_auth_or_command_failed")
+		return out.Bytes(), errors.New("ssh_auth_or_command_failed")
 	}
 	return out.Bytes(), nil
 }
@@ -126,6 +127,7 @@ func (a *localAgent) remoteInstall(w http.ResponseWriter, r *http.Request) {
 		Bundle      control.Bundle `json:"bundle"`
 		Runtime     string         `json:"runtime_archive"`
 		Service     bool           `json:"service"`
+		Resume      bool           `json:"resume"`
 	}
 	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 64<<10))
 	decoder.DisallowUnknownFields()
@@ -134,7 +136,7 @@ func (a *localAgent) remoteInstall(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	expiry, e := time.Parse(time.RFC3339, in.Bundle.Expires)
-	if e != nil || time.Now().After(expiry) || in.Bundle.Version != 1 {
+	if in.Bundle.Version != 1 || (!in.Resume && (e != nil || time.Now().After(expiry))) {
 		writeLocalJSON(w, 400, map[string]string{"error": "connection_file_expired"})
 		return
 	}
@@ -143,7 +145,7 @@ func (a *localAgent) remoteInstall(w http.ResponseWriter, r *http.Request) {
 		writeLocalJSON(w, 409, map[string]string{"error": "ssh_host_key_changed"})
 		return
 	}
-	if in.Runtime != "" && (!filepath.IsAbs(in.Runtime) || !(strings.HasSuffix(strings.ToLower(in.Runtime), ".zip") || strings.HasSuffix(strings.ToLower(in.Runtime), ".tar.gz") || strings.HasSuffix(strings.ToLower(in.Runtime), ".tgz"))) {
+	if !in.Resume && in.Runtime != "" && (!filepath.IsAbs(in.Runtime) || !(strings.HasSuffix(strings.ToLower(in.Runtime), ".zip") || strings.HasSuffix(strings.ToLower(in.Runtime), ".tar.gz") || strings.HasSuffix(strings.ToLower(in.Runtime), ".tgz"))) {
 		writeLocalJSON(w, 400, map[string]string{"error": "runtime_archive_not_found"})
 		return
 	}
@@ -177,7 +179,10 @@ func (a *localAgent) remoteInstall(w http.ResponseWriter, r *http.Request) {
 		writeLocalJSON(w, 409, map[string]string{"error": "ssh_architecture_unsupported"})
 		return
 	}
-	payload, e := remotePayload("linux", arch)
+	payload := ""
+	if !in.Resume {
+		payload, e = remotePayload("linux", arch)
+	}
 	if e != nil {
 		writeLocalJSON(w, 409, map[string]string{"error": "ssh_agent_package_missing"})
 		return
@@ -206,8 +211,10 @@ func (a *localAgent) remoteInstall(w http.ResponseWriter, r *http.Request) {
 		_, e = io.Copy(tw, f)
 		return e
 	}
-	e = add(payload, "ki-basis")
-	if e == nil && in.Runtime != "" {
+	if !in.Resume {
+		e = add(payload, "ki-basis")
+	}
+	if !in.Resume && e == nil && in.Runtime != "" {
 		e = add(in.Runtime, "runtime-package")
 	}
 	bundle, _ := json.Marshal(in.Bundle)
@@ -233,21 +240,38 @@ func (a *localAgent) remoteInstall(w http.ResponseWriter, r *http.Request) {
 	defer f.Close()
 	// Fixed destination, fixed commands, no interpolation of user-controlled shell
 	// text. Refuse to overwrite an existing identity; retries remain reviewable.
-	command := `umask 077; d="$HOME/.local/share/KI-Basis"; mkdir -p "$d" && test ! -e "$d/agent/agent.json" && tar -xf - -C "$d" && "$d/ki-basis" agent-bootstrap --dir "$d/agent" --bundle "$d/connection.json" --runtime "$d/runtime-package"`
+	command := `umask 077; d="$HOME/.local/share/KI-Basis"; mkdir -p "$d" || exit 1; s=$(mktemp -d "$d/.transfer-XXXXXX") || exit 1; trap 'rm -rf "$s"' EXIT; tar -xf - -C "$s" || exit 1; `
+	if in.Resume {
+		command += `test -f "$d/ki-basis" || exit 1; "$d/ki-basis" agent-bootstrap --resume --dir "$d/agent" --bundle "$s/connection.json"`
+	} else {
+		command += `if test -e "$d/agent/agent.json"; then printf '%s\n' 'KI_BASIS_SETUP:{"error":"agent_identity_already_exists"}'; exit 1; fi; "$s/ki-basis" agent-bootstrap --install-executable "$d/ki-basis" --dir "$d/agent" --bundle "$s/connection.json" --runtime "$s/runtime-package"`
+	}
 	if in.Service {
 		command += " --service"
 	}
 	result, e := sshRun(ctx, in.Target, known, command, f)
 	if e != nil {
-		writeLocalJSON(w, 502, map[string]string{"error": "ssh_install_failed_check_target"})
+		if diagnostic, ok := parseBootstrapFailure(result); ok {
+			writeLocalJSON(w, 409, diagnostic)
+		} else {
+			writeLocalJSON(w, 502, map[string]string{"error": "ssh_install_failed_check_target"})
+		}
 		return
 	}
 	var outcome struct {
-		Service bool `json:"service"`
+		Connected      bool   `json:"connected"`
+		NodeID         string `json:"node_id"`
+		Service        bool   `json:"service"`
+		AlreadyRunning bool   `json:"already_running"`
 	}
-	_ = json.Unmarshal(result, &outcome)
+	if json.Unmarshal(result, &outcome) != nil || !outcome.Connected || outcome.NodeID != in.Bundle.NodeID {
+		writeLocalJSON(w, 502, map[string]string{"error": "ssh_install_result_invalid"})
+		return
+	}
 	message := "Agent installiert und angemeldet. Weiter im zentralen Dashboard. Start im Hintergrund; automatischer Start nach Neustart ist nicht eingerichtet."
-	if outcome.Service {
+	if outcome.AlreadyRunning {
+		message = "Die passende Agent-Identität ist bereits aktiv. Es wurde kein zweiter Prozess gestartet und keine Anmeldung ersetzt. Den Neustartmodus im ursprünglichen Installationsabschluss prüfen."
+	} else if outcome.Service {
 		message = "Agent installiert und angemeldet. Systemdienst für automatischen Start eingerichtet. Weiter im zentralen Dashboard."
 	}
 	writeLocalJSON(w, 201, map[string]any{"connected": true, "node_id": in.Bundle.NodeID, "service": outcome.Service, "message": message})
@@ -258,5 +282,75 @@ func (a *localAgent) remoteInstall(w http.ResponseWriter, r *http.Request) {
 func agentBootstrapCommand(args []string) error {
 	// Implemented separately so the same provider-neutral provisioning works with
 	// cloud-init and administrative deployment tools as well as the browser manager.
-	return bootstrapAgent(args)
+	err := bootstrapAgent(args)
+	if err != nil {
+		failure := bootstrapFailure{Code: "agent_setup_failed"}
+		var detail *bootstrapFailure
+		if errors.As(err, &detail) {
+			failure = *detail
+		} else if bootstrapErrorAllowed(err.Error()) {
+			failure.Code = err.Error()
+		}
+		raw, _ := json.Marshal(failure)
+		fmt.Fprintln(os.Stdout, "KI_BASIS_SETUP:"+string(raw))
+	}
+	return err
+}
+
+func bootstrapErrorAllowed(code string) bool {
+	switch code {
+	case "agent_storage_unavailable", "agent_identity_missing", "agent_setup_in_progress", "agent_identity_already_exists", "agent_identity_mismatch", "agent_identity_unreadable", "agent_settings_invalid", "agent_enrollment_failed", "agent_service_unavailable_or_failed", "agent_service_start_failed", "agent_background_start_failed", "runtime_incompatible", "runtime_archive_invalid", "setup_checks_failed":
+		return true
+	}
+	return false
+}
+func parseBootstrapFailure(raw []byte) (bootstrapFailure, bool) {
+	if len(raw) > 64<<10 {
+		return bootstrapFailure{}, false
+	}
+	for _, line := range strings.Split(string(raw), "\n") {
+		if !strings.HasPrefix(line, "KI_BASIS_SETUP:") {
+			continue
+		}
+		var failure bootstrapFailure
+		if json.Unmarshal([]byte(strings.TrimPrefix(line, "KI_BASIS_SETUP:")), &failure) != nil || !bootstrapErrorAllowed(failure.Code) {
+			continue
+		}
+		// Only fixed diagnostic IDs/states reach the UI; remote messages are discarded.
+		clean := []setupCheck{}
+		for _, check := range failure.Checks {
+			if check.State == "error" {
+				if message, ok := remoteCheckMessages[check.ID]; ok {
+					clean = append(clean, setupCheck{check.ID, "error", message})
+				}
+			}
+		}
+		failure.Checks = clean
+		return failure, true
+	}
+	return bootstrapFailure{}, false
+}
+
+var remoteCheckMessages = map[string]string{
+	"runtime":    "Laufzeit fehlt oder startet nicht. Ein passendes Linux-llama.cpp-Paket auswählen und erneut installieren.",
+	"port":       "Kein freier Modellserver-Port verfügbar. Vorhandenen Modellprozess prüfen.",
+	"storage":    "Speicherpfad nicht zugänglich. Schreibbaren dauerhaften Speicher bereitstellen.",
+	"space":      "Für das Standardmodell ist zu wenig Speicher frei (etwa 14,7 GB erforderlich).",
+	"writable":   "Speicher ist nicht beschreibbar. Rechte des SSH-Benutzers prüfen.",
+	"model":      "Die gespeicherte Modelldatei fehlt. Im lokalen Agent-Assistenten den Pfad korrigieren.",
+	"connection": "Zentrale vom Zielserver nicht sicher erreichbar. HTTPS-Adresse und Zertifikat prüfen; bei 127.0.0.1 muss der Tunnel auf diesem Zielserver bestehen. Der Manager-Tunnel genügt nicht.",
+}
+
+// Preserve bounded protocol output while continuing to drain the SSH process.
+type boundedSSHOutput struct{ bytes.Buffer }
+
+func (b *boundedSSHOutput) Write(data []byte) (int, error) {
+	count := len(data)
+	if remaining := (64 << 10) - b.Len(); remaining > 0 {
+		if len(data) > remaining {
+			data = data[:remaining]
+		}
+		b.Buffer.Write(data)
+	}
+	return count, nil
 }

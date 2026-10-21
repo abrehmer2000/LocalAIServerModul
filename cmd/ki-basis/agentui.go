@@ -103,6 +103,7 @@ func agentUICommand(args []string) error {
 	dir := flags.String("dir", filepath.Join(userDir, "KI-Basis", "agent"), "private agent data directory")
 	port := flags.Int("port", 3100, "loopback setup port")
 	launch := flags.Bool("open-browser", true, "open local setup browser")
+	quietSetup := flags.Bool("quiet-setup", false, "keep setup session links out of service logs")
 	if err = flags.Parse(args); err != nil {
 		return err
 	}
@@ -114,12 +115,32 @@ func agentUICommand(args []string) error {
 		return err
 	}
 	if link, ok := reuseSetupSession(absolute); ok {
-		fmt.Fprintln(os.Stdout, "Agent-Einrichtung (bereits geöffnet):", link)
+		if !*quietSetup {
+			fmt.Fprintln(os.Stdout, "Agent-Einrichtung (bereits geöffnet):", link)
+		}
 		if *launch {
 			openBrowser(link)
 		}
 		return nil
 	}
+	release, lockErr := lockProcessFile(absolute, ".agent.lock")
+	if lockErr != nil {
+		// Another launch may still be preparing its session file.
+		for i := 0; i < 20; i++ {
+			if link, ok := reuseSetupSession(absolute); ok {
+				if !*quietSetup {
+					fmt.Fprintln(os.Stdout, "Agent-Einrichtung (bereits geöffnet):", link)
+				}
+				if *launch {
+					openBrowser(link)
+				}
+				return nil
+			}
+			time.Sleep(100 * time.Millisecond)
+		}
+		return lockErr
+	}
+	defer release()
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	a := &localAgent{dir: absolute, ctx: ctx, settings: agentSettings{Engine: "http://127.0.0.1:8082", Models: filepath.Join(absolute, "models")}}
@@ -200,6 +221,7 @@ func agentUICommand(args []string) error {
 	api.HandleFunc("POST /setup/runtime", a.importRuntime)
 	api.HandleFunc("GET /setup/backup", a.backup)
 	api.HandleFunc("POST /setup/restore", a.restore)
+	api.HandleFunc("POST /setup/restore-central", a.restoreCentral)
 	sessionCookie := "ki_setup_" + fmt.Sprint(listener.Addr().(*net.TCPAddr).Port)
 	api.HandleFunc("POST /setup/session", func(w http.ResponseWriter, r *http.Request) {
 		http.SetCookie(w, &http.Cookie{Name: sessionCookie, Value: token, Path: "/setup/", HttpOnly: true, SameSite: http.SameSiteStrictMode})
@@ -208,7 +230,7 @@ func agentUICommand(args []string) error {
 	api.HandleFunc("GET /setup/status", func(w http.ResponseWriter, r *http.Request) {
 		a.mu.Lock()
 		defer a.mu.Unlock()
-		result := map[string]any{"connected": a.runner != nil, "settings": a.settings, "tunnel": a.tunnelStatus(), "data_directory": a.dir}
+		result := map[string]any{"connected": a.runner != nil, "settings": a.settings, "tunnel": a.tunnelStatus(), "data_directory": a.dir, "restart_mode": readRestartMode(a.dir)}
 		if a.runner != nil {
 			s, e := agent.Load(filepath.Join(a.dir, "agent.json"))
 			if e != nil {
@@ -404,7 +426,7 @@ func agentUICommand(args []string) error {
 			http.Error(w, "invalid host", 403)
 			return
 		}
-		if r.URL.Path == "/setup/quit" || r.URL.Path == "/setup/tunnel" || r.URL.Path == "/setup/tunnel/reconnect" || r.URL.Path == "/setup/tunnel/disconnect" || r.URL.Path == "/setup/ssh/unlock" || r.URL.Path == "/setup/pick-file" || r.URL.Path == "/setup/restore" || r.URL.Path == "/setup/ssh/check" || r.URL.Path == "/setup/ssh/install" || r.URL.Path == "/setup/session" || r.URL.Path == "/setup/check" || r.URL.Path == "/setup/runtime" || r.URL.Path == "/setup/backup" || r.URL.Path == "/setup/status" || r.URL.Path == "/setup/connect" || r.URL.Path == "/setup/settings" || r.URL.Path == "/setup/autostart" {
+		if r.URL.Path == "/setup/quit" || r.URL.Path == "/setup/tunnel" || r.URL.Path == "/setup/tunnel/reconnect" || r.URL.Path == "/setup/tunnel/disconnect" || r.URL.Path == "/setup/ssh/unlock" || r.URL.Path == "/setup/pick-file" || r.URL.Path == "/setup/restore" || r.URL.Path == "/setup/restore-central" || r.URL.Path == "/setup/ssh/check" || r.URL.Path == "/setup/ssh/install" || r.URL.Path == "/setup/session" || r.URL.Path == "/setup/check" || r.URL.Path == "/setup/runtime" || r.URL.Path == "/setup/backup" || r.URL.Path == "/setup/status" || r.URL.Path == "/setup/connect" || r.URL.Path == "/setup/settings" || r.URL.Path == "/setup/autostart" {
 			supplied := r.Header.Get("X-Setup-Token")
 			if supplied == "" {
 				if cookie, e := r.Cookie(sessionCookie); e == nil {
@@ -454,7 +476,9 @@ func agentUICommand(args []string) error {
 			}()
 		}
 	}
-	fmt.Fprintln(os.Stdout, "Agent-Einrichtung (nur lokal):", setupURL)
+	if !*quietSetup {
+		fmt.Fprintln(os.Stdout, "Agent-Einrichtung (nur lokal):", setupURL)
+	}
 	if *launch {
 		openBrowser(setupURL)
 	}

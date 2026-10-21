@@ -152,6 +152,29 @@ with tempfile.TemporaryDirectory(prefix="ki-dashboard-") as temp:
             with page.expect_download() as backup_pending:
                 page.locator("#backup-central").click()
             backup_pending.value.save_as(root / "central-backup.zip")
+            setup.locator("#central-restore-file").locator("..").evaluate(
+                "(e)=>e.open=true"
+            )
+            setup.locator("#central-restore-file").set_input_files(
+                str(root / "central-backup.zip")
+            )
+            setup.locator("#central-restore-dir").fill(
+                str(root / "gui-restored-central")
+            )
+            setup.locator("#central-restore-confirm").check()
+            setup.locator("#restore-central").click()
+            setup.wait_for_function(
+                "() => document.getElementById('central-restore-result').textContent.includes('geprüft und wiederhergestellt')"
+            )
+            gui_verified = subprocess.check_output(
+                [
+                    binary,
+                    "audit-verify",
+                    "--config",
+                    str(root / "gui-restored-central/config.json"),
+                ]
+            )
+            assert json.loads(gui_verified)["valid"]
             # Restore the ZIP snapshots, not just their gzip/container checksums.
             subprocess.run(
                 [
@@ -232,6 +255,7 @@ with tempfile.TemporaryDirectory(prefix="ki-dashboard-") as temp:
                     "agent_and_central_backup": True,
                     "agent_gui_restore": True,
                     "central_restore_audit_verified": True,
+                    "central_gui_restore": True,
                     "real_mtls_join": True,
                     "agent_ui_import": True,
                     "audit_visible": True,

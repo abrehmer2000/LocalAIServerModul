@@ -183,3 +183,18 @@ etwa 14,7 GB frei); bei Bedarf `TMPDIR` auf einen ausreichend großen Datenträg
 setzen. Das Laufzeitarchiv stammt im Test vom Betreiber, nicht aus einem
 ungeprüften automatischen Download. Der SSH-Test verwendet eigene kurzlebige
 Schlüssel und einen isolierten lokalen sshd, keine Cloud-Zugangsdaten.
+
+
+## Stabilisierung der Einrichtung
+
+`go test -race ./...` prüft zusätzlich den gemeinsamen Backup-Vertrag mit
+Prüfsummen, Trennung der Sicherungsrollen, korruptes Gzip, begrenzte
+Alt-Pilotmigration, bereinigte SSH-Diagnosen und Prozesssperren. Windows prüft die
+native Dateisperre im normalen Testlauf.
+
+Der SSH-Smoke prüft inzwischen auch eine fehlende Zielserver-Verbindung,
+Wiederaufnahme mit abgelaufener passender Datei, Neustart des beendeten Agenten
+und Abweisung einer fremden Identität. Der Browser-Smoke restauriert eine Zentrale
+auch grafisch und prüft anschließend die Audit-Kette.
+Ein Systemboot, eine tatsächlich laufende systemd-Installation und echte GPUs
+werden damit nicht simuliert; dafür gilt [TEST-MORGEN.md](TEST-MORGEN.md).

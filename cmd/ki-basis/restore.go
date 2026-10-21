@@ -3,11 +3,18 @@ package main
 import (
 	"archive/zip"
 	"context"
+	"crypto/sha256"
+	"crypto/tls"
+	"crypto/x509"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"flag"
 	"io"
+	"localaiserver/internal/backup"
+	"localaiserver/internal/pki"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 
@@ -19,12 +26,13 @@ import (
 func unpackBackup(path, destination string) (string, error) {
 	z, e := zip.OpenReader(path)
 	if e != nil {
-		return "", e
+		return unpackLegacyBackup(path, destination)
 	}
 	defer z.Close()
 	allowed := map[string]bool{"manifest.json": true, "agent.json": true, "settings.json": true, "gateway.db": true, "config.json": true, "pki/ca.crt": true, "pki/ca.key": true, "pki/gateway.crt": true, "pki/gateway.key": true, "access.json": true, "admin-access.json": true, "new-api-key.json": true}
 	var total uint64
 	seen := map[string]bool{}
+	digests := map[string]string{}
 	for _, f := range z.File {
 		if !allowed[f.Name] || seen[f.Name] || !f.Mode().IsRegular() || f.UncompressedSize64 > 128<<20 || total+f.UncompressedSize64 > 256<<20 {
 			return "", errors.New("invalid_backup")
@@ -43,7 +51,15 @@ func unpackBackup(path, destination string) (string, error) {
 			out.Close()
 			return "", e
 		}
-		_, e = io.CopyN(out, in, int64(f.UncompressedSize64))
+		hash := sha256.New()
+		var count int64
+		count, e = io.Copy(io.MultiWriter(out, hash), io.LimitReader(in, int64(f.UncompressedSize64)+1))
+		if e == nil && count != int64(f.UncompressedSize64) {
+			e = errors.New("invalid_backup")
+		}
+		if f.Name != "manifest.json" {
+			digests[f.Name] = hex.EncodeToString(hash.Sum(nil))
+		}
 		in.Close()
 		ce := out.Close()
 		if e != nil {
@@ -53,15 +69,16 @@ func unpackBackup(path, destination string) (string, error) {
 			return "", ce
 		}
 	}
-	var manifest struct {
-		Format  string `json:"format"`
-		Version int    `json:"version"`
-	}
 	raw, e := os.ReadFile(filepath.Join(destination, "manifest.json"))
-	if e != nil || json.Unmarshal(raw, &manifest) != nil || manifest.Version != 1 {
+	if e != nil {
 		return "", errors.New("invalid_backup")
 	}
-	switch manifest.Format {
+	kind, e := backup.Validate(raw, digests)
+	if e != nil {
+		return "", e
+	}
+
+	switch kind {
 	case "ki-basis-agent-backup":
 		if !seen["settings.json"] {
 			return "", errors.New("invalid_backup")
@@ -78,7 +95,7 @@ func unpackBackup(path, destination string) (string, error) {
 	default:
 		return "", errors.New("invalid_backup")
 	}
-	return manifest.Format, nil
+	return kind, nil
 }
 
 func (a *localAgent) restore(w http.ResponseWriter, r *http.Request) {
@@ -98,7 +115,7 @@ func (a *localAgent) restore(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer os.Remove(f.Name())
-	_, e = io.Copy(f, http.MaxBytesReader(w, r.Body, 2<<20))
+	_, e = io.Copy(f, http.MaxBytesReader(w, r.Body, 256<<20))
 	ce := f.Close()
 	if e != nil || ce != nil {
 		writeLocalJSON(w, 400, map[string]string{"error": "invalid_backup"})
@@ -159,7 +176,11 @@ func restoreCommand(args []string) error {
 	if *dir == "" || *archive == "" {
 		return errors.New("archive_and_destination_required")
 	}
-	dest, e := filepath.Abs(*dir)
+	return restoreArchive(*archive, *dir, "")
+}
+
+func restoreArchive(archive, dir, expectedKind string) error {
+	dest, e := filepath.Abs(dir)
 	if e != nil {
 		return e
 	}
@@ -176,11 +197,17 @@ func restoreCommand(args []string) error {
 		return e
 	}
 	defer os.RemoveAll(stage)
-	kind, e := unpackBackup(*archive, stage)
+	kind, e := unpackBackup(archive, stage)
 	if e != nil {
 		return e
 	}
+	if expectedKind != "" && kind != expectedKind {
+		return errors.New("invalid_backup")
+	}
 	if kind == "ki-basis-central-backup" {
+		if e = validateCentralBackupTLS(stage); e != nil {
+			return e
+		}
 		raw, e := os.ReadFile(filepath.Join(stage, "config.json"))
 		if e != nil {
 			return e
@@ -216,4 +243,62 @@ func restoreCommand(args []string) error {
 		return e
 	}
 	return os.Rename(stage, dest)
+}
+
+// Restore central data on this manager's host only; never starts or replaces a live service.
+func (a *localAgent) restoreCentral(w http.ResponseWriter, r *http.Request) {
+	if !a.remoteMu.TryLock() {
+		writeLocalJSON(w, 409, map[string]string{"error": "restore_in_progress"})
+		return
+	}
+	defer a.remoteMu.Unlock()
+	destination, pathErr := url.PathUnescape(r.Header.Get("X-Restore-Destination"))
+	if pathErr != nil || !filepath.IsAbs(destination) || r.Header.Get("X-Restore-Confirmed") != "yes" {
+		writeLocalJSON(w, 400, map[string]string{"error": "restore_destination_required"})
+		return
+	}
+	f, err := os.CreateTemp(a.dir, ".central-restore-upload-")
+	if err != nil {
+		writeLocalJSON(w, 500, map[string]string{"error": "storage_failed"})
+		return
+	}
+	defer os.Remove(f.Name())
+	_, err = io.Copy(f, http.MaxBytesReader(w, r.Body, 256<<20))
+	closeErr := f.Close()
+	if err != nil || closeErr != nil {
+		writeLocalJSON(w, 400, map[string]string{"error": "invalid_backup"})
+		return
+	}
+	if err = restoreArchive(f.Name(), destination, backup.Central); err != nil {
+		code := "invalid_backup"
+		if err.Error() == "restore_destination_must_be_empty" {
+			code = err.Error()
+		}
+		writeLocalJSON(w, 409, map[string]string{"error": code})
+		return
+	}
+	writeLocalJSON(w, 201, map[string]any{"restored": true, "directory": filepath.Clean(destination), "message": "Zentralendaten geprüft und wiederhergestellt. Die Zentrale wurde nicht gestartet. Vorhandene Betriebsverwaltung auf diesen Ordner umstellen; alte Instanz ausgeschaltet lassen. Netzwerkadresse und Zertifikat bleiben erhalten und müssen zum Zielrechner passen."})
+}
+
+func validateCentralBackupTLS(dir string) error {
+	ca, err := pki.Load(filepath.Join(dir, "pki/ca.crt"), filepath.Join(dir, "pki/ca.key"))
+	if err != nil {
+		return errors.New("invalid_backup")
+	}
+	pair, err := tls.LoadX509KeyPair(filepath.Join(dir, "pki/gateway.crt"), filepath.Join(dir, "pki/gateway.key"))
+	if err != nil {
+		return errors.New("invalid_backup")
+	}
+	cert, err := x509.ParseCertificate(pair.Certificate[0])
+	if err != nil || cert.Subject.CommonName != pki.GatewayIdentity {
+		return errors.New("invalid_backup")
+	}
+	roots := x509.NewCertPool()
+	roots.AddCert(ca.Cert)
+	for _, usage := range []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth, x509.ExtKeyUsageClientAuth} {
+		if _, err = cert.Verify(x509.VerifyOptions{Roots: roots, KeyUsages: []x509.ExtKeyUsage{usage}}); err != nil {
+			return errors.New("invalid_backup")
+		}
+	}
+	return nil
 }

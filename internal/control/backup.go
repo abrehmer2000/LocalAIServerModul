@@ -9,8 +9,8 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"time"
 
+	"localaiserver/internal/backup"
 	"localaiserver/internal/event"
 )
 
@@ -35,7 +35,11 @@ func (s *Service) backup(w http.ResponseWriter, r *http.Request) {
 	}
 	var buffer bytes.Buffer
 	z := zip.NewWriter(&buffer)
+	digests := map[string]string{}
 	add := func(name string, data []byte) error {
+		if name != "manifest.json" {
+			digests[name] = backup.Digest(data)
+		}
 		h := &zip.FileHeader{Name: name, Method: zip.Deflate}
 		h.SetMode(0600)
 		f, e := z.CreateHeader(h)
@@ -79,7 +83,7 @@ func (s *Service) backup(w http.ResponseWriter, r *http.Request) {
 			err = add(name, raw)
 		}
 	}
-	manifest, _ := json.Marshal(map[string]any{"format": "ki-basis-central-backup", "version": 1, "created_at": time.Now().UTC().Format(time.RFC3339), "contains_secrets": true, "models_included": false, "agents_included": false, "note": "Agent-Identitäten separat sichern. Modellgewichte und Laufzeitpakete sind nicht enthalten."})
+	manifest, _ := backup.Encode(backup.Central, digests)
 	if err == nil {
 		err = add("manifest.json", manifest)
 	}

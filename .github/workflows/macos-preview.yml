@@ -26,7 +26,7 @@ jobs:
           done
           cp packaging/macos/Start.command packaging/macos/Server-einrichten.command packaging/macos/LIESMICH.txt work/mac-preview/KI-Basis-Mac/
           chmod +x work/mac-preview/KI-Basis-Mac/ki-basis work/mac-preview/KI-Basis-Mac/Start.command work/mac-preview/KI-Basis-Mac/Server-einrichten.command
-          cp SETUP-ASSISTENT.md work/mac-preview/KI-Basis-Mac/
+          cp SETUP-ASSISTENT.md PRODUCTION-PLAN.md TEST-MORGEN.md work/mac-preview/KI-Basis-Mac/
           app="work/mac-preview/KI-Basis-Mac/KI-Basis Manager.app/Contents"
           mkdir -p "$app/MacOS"
           cp work/mac-preview/KI-Basis-Mac/ki-basis "$app/MacOS/KI-Basis"

@@ -4,7 +4,7 @@ import (
 	"archive/zip"
 	"bytes"
 	"context"
-	"encoding/json"
+	"localaiserver/internal/backup"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -28,9 +28,7 @@ func (a *localAgent) backup(w http.ResponseWriter, r *http.Request) {
 	}
 	var buffer bytes.Buffer
 	z := zip.NewWriter(&buffer)
-	manifest, _ := json.Marshal(map[string]any{"format": "ki-basis-agent-backup", "version": 1, "created_at": time.Now().UTC().Format(time.RFC3339), "contains_secrets": true, "models_included": false, "runtime_included": false})
-	f, _ := z.Create("manifest.json")
-	f.Write(manifest)
+	digests := map[string]string{}
 	for _, name := range []string{"agent.json", "settings.json"} {
 		data, e := os.ReadFile(filepath.Join(a.dir, name))
 		if e != nil {
@@ -38,6 +36,7 @@ func (a *localAgent) backup(w http.ResponseWriter, r *http.Request) {
 			writeLocalJSON(w, 500, map[string]string{"error": "backup_failed"})
 			return
 		}
+		digests[name] = backup.Digest(data)
 		header := &zip.FileHeader{Name: name, Method: zip.Deflate}
 		header.SetMode(0600)
 		f, e := z.CreateHeader(header)
@@ -49,6 +48,16 @@ func (a *localAgent) backup(w http.ResponseWriter, r *http.Request) {
 			writeLocalJSON(w, 500, map[string]string{"error": "backup_failed"})
 			return
 		}
+	}
+	manifest, _ := backup.Encode(backup.Agent, digests)
+	f, e := z.Create("manifest.json")
+	if e != nil {
+		writeLocalJSON(w, 500, map[string]string{"error": "backup_failed"})
+		return
+	}
+	if _, e = f.Write(manifest); e != nil {
+		writeLocalJSON(w, 500, map[string]string{"error": "backup_failed"})
+		return
 	}
 	if z.Close() != nil {
 		writeLocalJSON(w, 500, map[string]string{"error": "backup_failed"})

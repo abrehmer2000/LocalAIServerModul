@@ -1,13 +1,34 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
 	"strings"
+	"time"
 )
 
+func serverServiceAvailable() bool {
+	if os.Geteuid() != 0 {
+		return false
+	}
+	info, err := os.Stat("/run/systemd/system")
+	if err != nil || !info.IsDir() {
+		return false
+	}
+	_, err = exec.LookPath("systemctl")
+	return err == nil
+}
+func serviceCommand(args ...string) bool {
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	return exec.CommandContext(ctx, "systemctl", args...).Run() == nil
+}
 func installServerService(executable, dir string, port int) bool {
+	if !serverServiceAvailable() {
+		return false
+	}
 	if os.Geteuid() != 0 {
 		return false
 	}
@@ -29,12 +50,15 @@ func installServerService(executable, dir string, port int) bool {
 		s = strings.ReplaceAll(s, "\r", "\\r")
 		return "\"" + s + "\""
 	}
-	unit := fmt.Sprintf(marker+"[Unit]\nDescription=KI-Basis model agent\nWants=network-online.target\nAfter=network-online.target\n[Service]\nType=simple\nExecStart=%s agent-ui --dir %s --port %d --open-browser=false\nRestart=on-failure\nRestartSec=5\nKillMode=control-group\nTimeoutStopSec=20\n[Install]\nWantedBy=multi-user.target\n", quote(executable), quote(dir), port)
-	if os.WriteFile(path, []byte(unit), 0600) != nil {
+	unit := fmt.Sprintf(marker+"[Unit]\nDescription=KI-Basis model agent\nWants=network-online.target\nAfter=network-online.target\n[Service]\nType=simple\nExecStart=%s agent-ui --dir %s --port %d --open-browser=false --quiet-setup\nRestart=on-failure\nRestartSec=5\nKillMode=control-group\nTimeoutStopSec=20\n[Install]\nWantedBy=multi-user.target\n", quote(executable), quote(dir), port)
+	if raw, e := os.ReadFile(path); e == nil && !strings.Contains(string(raw), "ExecStart="+quote(executable)+" agent-ui --dir "+quote(dir)+" --port ") {
 		return false
 	}
-	if exec.Command("systemctl", "daemon-reload").Run() != nil {
+	if writePrivate(path, []byte(unit)) != nil {
 		return false
 	}
-	return exec.Command("systemctl", "enable", "--now", "ki-basis-agent.service").Run() == nil
+	if !serviceCommand("daemon-reload") {
+		return false
+	}
+	return serviceCommand("enable", "--now", "ki-basis-agent.service") && serviceCommand("is-enabled", "--quiet", "ki-basis-agent.service") && serviceCommand("is-active", "--quiet", "ki-basis-agent.service")
 }

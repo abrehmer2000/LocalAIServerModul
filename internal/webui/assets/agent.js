@@ -97,6 +97,16 @@
     try {
       const s = await api("/setup/status");
       connected = s.connected;
+      $("restart-mode").textContent = {
+        systemd:
+          "Systemdienst eingerichtet: Start nach Serverneustart und Neustart bei Prozessfehlern konfiguriert. Einen echten Serverneustart im Betrieb testen.",
+        systemd_pending:
+          "Systemdienst-Einrichtung noch nicht bestätigt. Im SSH-Assistenten sicher fortsetzen; keinen zweiten Hintergrundprozess starten.",
+        manual:
+          "Hintergrundbetrieb: Nach einem Serverneustart muss der Agent erneut gestartet werden. Für Container einen Neustartmechanismus in der Infrastruktur einrichten.",
+        unknown:
+          "Automatischer Serverstart ist nicht bestätigt. Benutzer-Autostart unten ersetzt keinen Systemdienst.",
+      }[s.restart_mode || "unknown"];
       $("tunnel-panel").hidden = !s.tunnel?.state;
       if (s.tunnel?.state) {
         $("tunnel-state").textContent =
@@ -385,6 +395,32 @@
     $("remote-panel").hidden = false;
   });
   const sshErrors = {
+    agent_storage_unavailable:
+      "Der Agent-Datenordner ist nicht beschreibbar oder unterstützt die erforderliche Prozesssperre nicht. Einen geeigneten lokalen, dauerhaften Datenträger und Zugriffsrechte bereitstellen.",
+    agent_identity_missing:
+      "Auf dem Zielserver ist noch keine Identität vorhanden. ‚Vorhandene Einrichtung fortsetzen‘ ausschalten und mit einer gültigen Verbindungsdatei installieren.",
+    ssh_install_result_invalid:
+      "Der Server hat keinen bestätigten Abschluss geliefert. Den Serverstatus in der Zentrale prüfen und mit derselben Identität fortsetzen; nicht neu anmelden.",
+    agent_setup_in_progress:
+      "Eine Einrichtung läuft bereits auf diesem Server. Kurz warten und erneut versuchen.",
+    agent_identity_already_exists:
+      "Dieser Server ist bereits angemeldet. Unten ‚Vorhandene Einrichtung fortsetzen‘ wählen und dieselbe Verbindungsdatei verwenden.",
+    agent_identity_mismatch:
+      "Die vorhandene Identität gehört nicht zu diesem Servereintrag oder dieser Zentrale. Es wurde nichts überschrieben. Den passenden Servereintrag in der Zentrale auswählen.",
+    agent_identity_unreadable:
+      "Die vorhandene Identität ist nicht lesbar. Zugriffsrechte prüfen; nicht durch eine neue Anmeldung ersetzen.",
+    agent_settings_invalid:
+      "Die gespeicherten Einstellungen sind beschädigt. Eine geprüfte Agent-Sicherung wiederherstellen.",
+    agent_enrollment_failed:
+      "Anmeldung nicht bestätigt. Den Serverstatus in der Zentrale prüfen, bevor eine neue Verbindungsdatei erstellt wird.",
+    agent_service_unavailable_or_failed:
+      "Systemdienst konnte nicht eingerichtet werden. Die Anmeldung bleibt erhalten. Bei Linux mit systemd und Root-Zugang ‚Fortsetzen‘ versuchen. Sonst bewusst Hintergrundbetrieb wählen; dieser startet nach einem Serverneustart nicht automatisch.",
+    agent_service_start_failed:
+      "Systemdienst antwortet noch nicht. Nach kurzer Wartezeit mit derselben Identität fortsetzen. Keinen zusätzlichen Hintergrundprozess starten.",
+    agent_background_start_failed:
+      "Der Agent konnte nicht im Hintergrund gestartet werden. Mit ‚Vorhandene Einrichtung fortsetzen‘ erneut versuchen; die Identität bleibt erhalten.",
+    setup_checks_failed:
+      "Bitte die folgenden Prüfungen auf dem Zielserver korrigieren und erneut versuchen.",
     invalid_ssh_target:
       "Bitte Serveradresse, Benutzername, Port und einen absoluten Schlüsselpfad prüfen.",
     ssh_host_unreachable:
@@ -413,9 +449,12 @@
     const data = await response.json();
     if (!response.ok)
       throw Error(
-        sshErrors[data.error] ||
+        (sshErrors[data.error] ||
           messages[data.error] ||
-          "SSH-Einrichtung fehlgeschlagen.",
+          "SSH-Einrichtung fehlgeschlagen.") +
+          (Array.isArray(data.checks)
+            ? "\n" + data.checks.map((check) => check.message).join("\n")
+            : ""),
       );
     return data;
   }
@@ -508,6 +547,12 @@
       $("tunnel-state").textContent = error.message;
     }
   });
+  $("ssh-network").addEventListener("change", () => {
+    $("ssh-network-help").textContent =
+      $("ssh-network").value === "tunnel"
+        ? "Der Tunnel muss auf dem Zielserver laufen und nach dessen Neustart wieder starten. Der Manager-Tunnel verbindet nur deinen Rechner mit der Zentrale. Die Verbindung wird vor der Anmeldung auf dem Zielserver geprüft."
+        : "Der Zielserver muss die HTTPS-Adresse selbst erreichen, direkt oder über ein bereits eingerichtetes VPN. Zertifikate werden geprüft. Netzwerk und Firewall werden nicht automatisch verändert.";
+  });
   $("remote-form").addEventListener("submit", async (event) => {
     event.preventDefault();
     if (remoteStep !== 2) return;
@@ -545,14 +590,49 @@
         bundle,
         runtime_archive: $("ssh-runtime").value.trim(),
         service: $("ssh-service").checked,
+        resume: $("ssh-resume").checked,
       });
       $("ssh-result").textContent = result.message;
-      $("ssh-bundle").value = "";
+      // Keep the selected file for a safe retry; it is never persisted by the browser.
     } catch (error) {
       $("ssh-result").textContent = error.message;
     } finally {
       $("ssh-install").disabled = false;
       $("ssh-back").disabled = false;
+    }
+  });
+  $("restore-central").addEventListener("click", async () => {
+    const file = $("central-restore-file").files[0];
+    const directory = $("central-restore-dir").value.trim();
+    if (!file || !directory || !$("central-restore-confirm").checked) {
+      $("central-restore-result").textContent =
+        "Sicherung und leeren Zielordner auswählen und bestätigen, dass die alte Zentrale ausgeschaltet ist.";
+      return;
+    }
+    $("restore-central").disabled = true;
+    try {
+      const response = await fetch("/setup/restore-central", {
+        method: "POST",
+        headers: {
+          "X-Setup-Token": token,
+          "X-Restore-Destination": encodeURIComponent(directory),
+          "X-Restore-Confirmed": "yes",
+        },
+        body: file,
+      });
+      const data = await response.json();
+      if (!response.ok)
+        throw Error(
+          data.error === "restore_destination_must_be_empty"
+            ? "Der Zielordner enthält Daten. Einen anderen leeren Ordner auswählen. Es wurde nichts überschrieben."
+            : "Sicherung konnte nicht wiederhergestellt werden. KI-Basis-Zentralen-ZIP, Prüfsummen, Audit-Kette, Zugriffsrechte und Zielordner prüfen.",
+        );
+      $("central-restore-result").textContent =
+        data.message + " Ziel: " + data.directory;
+    } catch (error) {
+      $("central-restore-result").textContent = error.message;
+    } finally {
+      $("restore-central").disabled = false;
     }
   });
   showRemote(0);

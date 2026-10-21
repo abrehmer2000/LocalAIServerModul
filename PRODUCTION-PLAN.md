@@ -84,3 +84,16 @@ Kombination vorliegen:
 
 Die technischen Tests schaffen eine Basis; die obigen betrieblichen und
 menschlichen Abnahmen sind weiterhin erforderlich.
+
+## Ergänzte Stabilisierung im Einrichtungsablauf
+
+Strukturierte SSH-Diagnosen, identitätsgebundene Wiederaufnahme mit Prozesssperre,
+einheitlicher Backup-Vertrag mit Prüfsummen, begrenzte Alt-Pilotmigration und
+grafischer Import von Zentralendaten sind umgesetzt. Der angeforderte systemd-
+Betrieb wird explizit geprüft; ein Fehlschlag fällt nicht still auf Hintergrund-
+betrieb zurück. Wiederaufnahme eines beendeten Agent-Prozesses ist automatisiert
+geprüft. Das ersetzt keinen vollständigen Maschinenneustart oder GPU-Test.
+
+Die Netzwerkvarianten bleiben erreichbares HTTPS (ggf. vorhandenes VPN) und ein
+bereits eingerichteter Agent-Tunnel. Anbieterintegration, Treiberinstallation und
+allgemeine Laufzeitverwaltung bleiben außerhalb dieses Freigabeumfangs.

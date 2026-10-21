@@ -102,16 +102,48 @@ Verschlüsselte Schlüssel können unter macOS/Linux mit **Schlüssel entsperren
 Passphrase läuft direkt zu `ssh-add`, nicht durch Browser, API oder Log.
 Unter Windows wird ein bereits entsperrter OpenSSH-Agent vorausgesetzt.
 OpenSSH-Client und `ssh-keyscan` müssen auf dem Manager installiert sein;
-Linux-Ziele benötigen eine Shell und `tar`. Individuelle ProxyCommand- und
+Linux-Ziele benötigen eine Shell, `tar` und `mktemp`. Individuelle ProxyCommand- und
 SSH-Konfigurationen werden nicht übernommen. Für Sprungserver ist zunächst ein
 passender direkter/VPN-Zugang erforderlich.
 
 Ein Systemdienst wird nur auf ausdrücklichen Wunsch eingerichtet und benötigt
-Linux mit laufendem systemd und Root-Zugang. In Containern oder ohne diese
-Voraussetzungen läuft der Agent im Hintergrund; die Abschlussmeldung nennt
-diesen Unterschied ausdrücklich. Ein Hintergrundprozess allein überlebt keinen
-Serverneustart. Windows-Autostart bei Benutzeranmeldung und Linux-Benutzerdienste
-bleiben separat in der lokalen Agent-Oberfläche verfügbar.
+Linux mit laufendem systemd und Root-Zugang. Fehlen diese Voraussetzungen, wird
+vor der Anmeldung ein Fehler angezeigt; ein angeforderter Dienst wird nie still
+zu einem Hintergrundprozess. Der Dienst wird auf aktiv und aktiviert geprüft;
+die authentifizierte lokale Agent-Oberfläche muss ebenfalls antworten.
+`Restart=on-failure` und Start beim Systemboot werden durch systemd umgesetzt.
+Ein echter Serverneustart bleibt Teil der Betriebsabnahme.
+
+Ohne Dienstwahl läuft der Agent im Hintergrund. Das überlebt keinen Serverneustart.
+In Containern ist ein expliziter Start-/Neustartmechanismus der Infrastruktur
+nötig. Die lokale Oberfläche zeigt den gespeicherten Neustartmodus; ein
+unbekannter Modus wird nicht als eingerichtet ausgegeben. Windows-Autostart bei
+Benutzeranmeldung und Linux-Benutzerdienste bleiben separat verfügbar.
+Ein Dienstversuch wird gespeichert: Fortsetzen wechselt dann nicht unbemerkt auf
+Hintergrundbetrieb. Dienst- und Hintergrundlogs enthalten keinen Setup-Sitzungslink.
+
+### Fehler beheben und sicher fortsetzen
+
+Die SSH-Oberfläche zeigt fehlgeschlagene Prüfungen getrennt für Laufzeit,
+Speicher, Modellport und Verbindung zur Zentrale. Rohe SSH-Ausgaben und fremde
+Fehlermeldungen werden nicht im Browser angezeigt.
+
+- **Vor der Anmeldung fehlgeschlagen:** Ursache beheben und mit einer noch
+  gültigen Verbindungsdatei erneut installieren. Vorabprüfungen verbrauchen
+  keinen Anmeldecode. Temporäre Laufzeiten werden bei Abbruch bereinigt.
+- **Bereits angemeldet oder Start fehlgeschlagen:** **Vorhandene Einrichtung
+  fortsetzen** wählen und dieselbe Verbindungsdatei behalten. Zum Abgleich einer
+  bestehenden Identität darf sie abgelaufen sein. Server-ID, Gateway und CA müssen
+  übereinstimmen; es wird kein neuer Code verbraucht und keine Identität ersetzt.
+- Eine laufende passende Instanz wird wiederverwendet. Ein beendeter Agent wird
+  mit seinen bisherigen Einstellungen gestartet. Gleichzeitige Bootstrapversuche
+  werden durch eine Betriebssystemsperre verhindert; nach Prozessabbruch bleibt
+  keine verwaiste Sperre zurück.
+- Fortsetzen ist kein Programmupdate und importiert keine neue Laufzeit. Für eine
+  andere Identität oder ein beschädigtes Identitätsdokument ist eine geprüfte
+  Sicherung bzw. eine bewusst neue Anmeldung erforderlich.
+- Bei einer unklar bestätigten Anmeldung zuerst den Status in der Zentrale
+  prüfen. Ein bereits verbrauchter Token wird nicht automatisch erneut gesendet.
 
 ## SSH-Tunnel ohne offene Terminalfenster
 
@@ -144,8 +176,20 @@ Tunnel-Schlüssel auf weitere Server sind noch nicht enthalten.
 - Archive enthalten Geheimnisse. Nicht auf GitHub oder in ungeschützte
   gemeinsame Ordner hochladen. Backup-Downloads sind nicht verschlüsselt.
 
-Für die Zentrale gibt es zunächst die administrative Wiederherstellung in einen
-**leeren** Ordner (eine grafische Zentralen-Wiederherstellung ist noch offen):
+Beide Sicherungstypen verwenden denselben versionierten ZIP-Vertrag mit einer
+SHA-256-Prüfsumme je Nutzdatei (Version 2). Frühere KI-Basis-ZIPs der Version 1
+bleiben lesbar. Prüfsummen erkennen Beschädigungen; sie ersetzen weder
+Verschlüsselung noch einen vertrauenswürdigen Aufbewahrungsort.
+Dateisätze unterschiedlicher Rollen, doppelte Pfade und beschädigte ZIP-Einträge
+werden abgewiesen.
+
+Im Manager **Zentralen-Sicherung auf diesem Rechner wiederherstellen** öffnen,
+Datei und einen **leeren** absoluten Zielordner wählen und bestätigen, dass die
+vorherige Instanz ausgeschaltet ist. Die Oberfläche importiert Daten auf dem
+Manager-Rechner, nicht auf einem entfernten SSH-Ziel. Die Zentrale wird dabei
+nicht automatisch gestartet und keine Dienstverwaltung geändert. Die Prüfung
+umfasst Audit-Kette und zusammengehörige gültige PKI-Dateien. Für automatisierte
+Verwaltung bleibt derselbe Vorgang als CLI verfügbar:
 
 ```
 ki-basis restore --archive ki-basis-zentrale-backup.zip --dir /neuer/datenordner
@@ -155,9 +199,24 @@ ki-basis quickstart --dir /neuer/datenordner --open-browser
 Die Restore-Funktion prüft die Audit-Kette und setzt PKI-/Datenbankpfade auf den
 neuen Ordner um. Externe Node-CA-Dateien und KeyEnv-Umgebungsvariablen aus
 individuellen statischen Konfigurationen müssen separat bereitgestellt werden.
-Die früher manuell erstellten `server-01.tar.gz`/`server-02.tar.gz` verwenden ein
-anderes Format; sie werden über den dokumentierten manuellen Wiederaufbau
-restauriert, nicht über den neuen ZIP-Importer.
+Die früher manuell erstellten `server-01.tar.gz`/`server-02.tar.gz` können als
+begrenzte Pilotmigration über denselben Import eingelesen werden. Erkannt werden
+nur die bekannten Datenpfade `workspace/ki-daten/` und für den Agenten
+`workspace/ki-daten/agent/`. Host-SSH-Schlüssel, Programme, Bibliotheken und Modelle
+aus diesen Archiven werden bewusst nicht restauriert. Für andere TAR-Strukturen
+existiert kein allgemeiner Import. Anschließend neue ZIP-Sicherungen erstellen.
+Bestehende manuelle Tunnel müssen separat wiederhergestellt werden.
+
+### Zwei überprüfbare Netzwerkwege
+
+1. Erreichbares **HTTPS**, direkt oder über ein bereits eingerichtetes VPN.
+2. Ein **bestehender Tunnel auf dem Agent-Rechner** mit passender Gateway-Adresse.
+
+Beide Wege werden auf dem Zielrechner vor der Anmeldung mit Zertifikatsprüfung
+getestet. Der Manager-Tunnel ersetzt den zweiten Weg nicht. Netzwerkzugang,
+Zertifikatsadresse und gegebenenfalls Tunnel-Neustart müssen nach einem Umzug oder
+Serverneustart erneut geprüft werden. Es gibt keine Anbieter-API, automatische
+Firewalländerung, VPN-Verteilung oder Treiberinstallation.
 
 ## Grenzen dieses Piloten
 
