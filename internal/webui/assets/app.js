@@ -504,6 +504,7 @@
     byId("test-message").textContent = "Anfrage läuft …";
     let timer = setTimeout(() => controller.abort(), 180000);
     let done = false;
+    let finishReason = null;
     try {
       const response = await fetch("/v1/chat/completions", {
         method: "POST",
@@ -530,10 +531,10 @@
         if (chunk.done) break;
         buffer += decoder.decode(chunk.value, { stream: true });
         let boundary;
-        while ((boundary = buffer.indexOf("\n\n")) >= 0) {
-          const item = buffer.slice(0, boundary);
-          buffer = buffer.slice(boundary + 2);
-          for (const line of item.split("\n")) {
+        while ((boundary = /\r\n\r\n|\n\n|\r\r/.exec(buffer))) {
+          const item = buffer.slice(0, boundary.index);
+          buffer = buffer.slice(boundary.index + boundary[0].length);
+          for (const line of item.split(/\r\n|\n|\r/)) {
             if (!line.startsWith("data:")) continue;
             const value = line.slice(5).trim();
             if (value === "[DONE]") {
@@ -544,6 +545,7 @@
             if (data.error)
               throw Error(data.error.message || "Stream unterbrochen");
             for (const choice of data.choices || []) {
+              if (choice.finish_reason) finishReason = choice.finish_reason;
               if (current === session && choice.delta?.content)
                 byId("test-answer").textContent += choice.delta.content;
             }
@@ -554,10 +556,16 @@
           break;
         }
       }
-      if (current === session)
-        byId("test-message").textContent = done
-          ? "Antwort vollständig empfangen."
-          : "Stream ohne Abschluss beendet.";
+      if (current === session) {
+        const hasText = byId("test-answer").textContent.trim().length > 0;
+        byId("test-message").textContent = !done
+          ? "Stream ohne Abschluss beendet."
+          : finishReason === "length"
+            ? "Ausgabelimit erreicht. Die Antwort kann fehlen oder unvollständig sein."
+            : !hasText
+              ? "Stream beendet, aber keine Textantwort empfangen."
+              : "Antwort vollständig empfangen.";
+      }
     } catch (error) {
       if (current === session)
         byId("test-message").textContent =
