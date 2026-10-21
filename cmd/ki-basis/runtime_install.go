@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	archivepath "path"
 	"path/filepath"
 	"strings"
 	"time"
@@ -105,11 +106,11 @@ func extractRuntime(file, directory string) (string, error) {
 				return "", e
 			}
 			if h.Typeflag == tar.TypeSymlink {
-				if len(links) >= 4096 || strings.ContainsAny(h.Name+h.Linkname, "\\:") || filepath.IsAbs(h.Name) || filepath.IsAbs(h.Linkname) {
+				if len(links) >= 4096 || strings.ContainsAny(h.Name+h.Linkname, "\\:") || archivepath.IsAbs(h.Name) || archivepath.IsAbs(h.Linkname) {
 					return "", errors.New("unsafe_runtime_archive")
 				}
-				target := filepath.Clean(filepath.Join(filepath.Dir(h.Name), h.Linkname))
-				name := filepath.Clean(h.Name)
+				target := archivepath.Clean(archivepath.Join(archivepath.Dir(h.Name), h.Linkname))
+				name := archivepath.Clean(h.Name)
 				if target == ".." || strings.HasPrefix(target, "../") || name == ".." || strings.HasPrefix(name, "../") {
 					return "", errors.New("unsafe_runtime_archive")
 				}
@@ -127,7 +128,7 @@ func extractRuntime(file, directory string) (string, error) {
 			var pending []link
 			progress := false
 			for _, l := range links {
-				r, e := os.Open(filepath.Join(directory, l.target))
+				r, e := os.Open(filepath.Join(directory, filepath.FromSlash(l.target)))
 				if os.IsNotExist(e) {
 					pending = append(pending, l)
 					continue

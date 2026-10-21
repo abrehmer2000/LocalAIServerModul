@@ -141,3 +141,29 @@ func TestResolveSettingsPreservesDetectedDefaults(t *testing.T) {
 		t.Fatal("defaults lost")
 	}
 }
+
+func TestRuntimeTarRejectsLinkOutsideArchiveOnEveryPlatform(t *testing.T) {
+	root := t.TempDir()
+	outside := filepath.Join(root, "outside.txt")
+	if e := os.WriteFile(outside, []byte("private"), 0600); e != nil {
+		t.Fatal(e)
+	}
+	stage := filepath.Join(root, "stage")
+	os.Mkdir(stage, 0700)
+	var data bytes.Buffer
+	gz := gzip.NewWriter(&data)
+	tw := tar.NewWriter(gz)
+	tw.WriteHeader(&tar.Header{Name: "llama-server", Mode: 0700, Size: 3})
+	tw.Write([]byte("abc"))
+	tw.WriteHeader(&tar.Header{Name: "library.so", Linkname: "../outside.txt", Typeflag: tar.TypeSymlink})
+	tw.Close()
+	gz.Close()
+	archive := filepath.Join(root, "runtime.tar.gz")
+	os.WriteFile(archive, data.Bytes(), 0600)
+	if _, e := extractRuntime(archive, stage); e == nil {
+		t.Fatal("link outside archive accepted")
+	}
+	if _, e := os.Stat(filepath.Join(stage, "library.so")); !os.IsNotExist(e) {
+		t.Fatal("outside file was copied")
+	}
+}
