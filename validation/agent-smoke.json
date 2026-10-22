@@ -1,0 +1,19 @@
+{
+  "dynamic_join": true,
+  "mtls": true,
+  "managed_engines": 2,
+  "join_without_gateway_restart": true,
+  "gateway_restart_recovery_verified": true,
+  "inference_nodes": [
+    "agent-1",
+    "agent-2"
+  ],
+  "revocation_verified": true,
+  "agent_withdrawal_verified": true,
+  "engine_shutdown_verified": true,
+  "audit": {
+    "head_hash": "78fbabd84025d4eadeb8212915a17659503206eca2d478ee9dd4954e409af1cb",
+    "sequence": 31,
+    "valid": true
+  }
+}

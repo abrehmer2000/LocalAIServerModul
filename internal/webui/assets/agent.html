@@ -1,0 +1,438 @@
+<!doctype html>
+<html lang="de">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>KI-Basis · Rechner einrichten</title>
+    <link rel="stylesheet" href="/style.css" />
+    <script src="/agent.js" defer></script>
+  </head>
+  <body>
+    <header>
+      <a class="brand" href="/"
+        >KI-Basis <span class="version">Rechner einrichten</span></a
+      >
+    </header>
+    <main>
+      <div class="eyebrow">CLOUD UND EIGENE RECHNER</div>
+      <h1>Schritt für Schritt<br />verbinden.</h1>
+      <p id="machine-label">
+        Die Einstellungen gelten für den Rechner, auf dem dieser Agent läuft.
+      </p>
+      <section class="panel">
+        <h2>Wo möchtest du einen Rechner einrichten?</h2>
+        <div class="actions">
+          <button type="button" id="choose-local">
+            Diesen Rechner einrichten</button
+          ><button type="button" class="secondary" id="choose-ssh">
+            Anderen Linux-Server über SSH einrichten
+          </button>
+        </div>
+        <p>
+          Für Cloud-Anbieter und On-Premises-Server. Dieser Assistent läuft auf
+          dem Rechner des Agent-Programms, nicht zwingend auf dem Rechner deines
+          Browsers.
+        </p>
+      </section>
+      <section class="panel setup-wizard" id="remote-panel" hidden>
+        <h2>Linux-Server über SSH verbinden</h2>
+        <ol class="steps" id="remote-steps">
+          <li>1 · Zugang</li>
+          <li>2 · Identität prüfen</li>
+          <li>3 · Installieren</li>
+        </ol>
+        <form id="remote-form">
+          <section data-remote-step="0">
+            <label for="ssh-role">Was möchtest du tun?</label
+            ><select id="ssh-role">
+              <option value="agent">
+                Agent auf einem Linux-Server installieren
+              </option>
+              <option value="central">
+                Vorhandene Zentrale über SSH öffnen
+              </option>
+            </select>
+            <p>
+              Die Zentrale muss vom Zielserver über HTTPS oder VPN erreichbar
+              sein. Bestehende SSH-Zugänge und ein entsperrter Schlüssel werden
+              verwendet. Es werden keine Cloud-Zugangsdaten benötigt.
+            </p>
+            <label for="ssh-host">Serveradresse</label
+            ><input
+              id="ssh-host"
+              placeholder="server.meine-firma.de oder IP-Adresse"
+              required
+            />
+            <label for="ssh-port">SSH-Port</label
+            ><input
+              id="ssh-port"
+              type="number"
+              min="1"
+              max="65535"
+              value="22"
+              required
+            />
+            <label for="ssh-user">Benutzername</label
+            ><input id="ssh-user" value="root" required />
+            <details>
+              <summary>SSH-Schlüssel auswählen</summary>
+              <label for="ssh-key"
+                >Schlüsselpfad auf dem Rechner dieses Assistenten
+                (optional)</label
+              ><input
+                id="ssh-key"
+                placeholder="Leer lassen, um den SSH-Agenten zu verwenden"
+              /><button type="button" class="secondary" id="pick-ssh-key">
+                Schlüsseldatei auswählen</button
+              ><button type="button" class="secondary" id="unlock-ssh-key">
+                Schlüssel entsperren
+              </button>
+              <p>
+                Private Schlüssel werden nicht auf den Zielserver kopiert.
+                Verschlüsselte Schlüssel müssen im SSH-Agenten des
+                Betriebssystems entsperrt sein.
+              </p>
+            </details>
+            <button type="button" id="ssh-check">
+              Serveridentität abrufen
+            </button>
+          </section>
+          <section data-remote-step="1" hidden>
+            <h3>Ist das der richtige Server?</h3>
+            <p>
+              Vergleiche den Fingerabdruck mit der Serverkonsole oder deiner
+              Administration.
+            </p>
+            <pre id="ssh-fingerprint"></pre>
+            <label class="check-label"
+              ><input type="checkbox" id="ssh-trust" /> Ich habe den
+              Fingerabdruck geprüft.</label
+            ><button type="button" id="ssh-confirm">
+              Weiter zur Installation
+            </button>
+          </section>
+          <section data-remote-step="2" hidden>
+            <h3>Installation vorbereiten</h3>
+            <div id="remote-agent-options">
+              <label for="ssh-bundle">Verbindungsdatei aus der Zentrale</label
+              ><input id="ssh-bundle" type="file" accept=".json" />
+              <label class="check-label"
+                ><input id="ssh-resume" type="checkbox" /> Vorhandene
+                Einrichtung fortsetzen (Identität und Einstellungen
+                erhalten)</label
+              >
+              <p>
+                Zum Fortsetzen dieselbe Verbindungsdatei für diesen Server
+                verwenden. Sie darf dann abgelaufen sein: Es wird kein neuer
+                Anmeldecode verbraucht. Dies ist kein Programmupdate.
+              </p>
+              <label for="ssh-network"
+                >Verbindung des Zielservers zur Zentrale</label
+              >
+              <select id="ssh-network">
+                <option value="https">
+                  Erreichbares HTTPS (direkt oder über vorhandenes VPN)
+                </option>
+                <option value="tunnel">
+                  Bereits eingerichteter Tunnel auf dem Zielserver
+                </option>
+              </select>
+              <p id="ssh-network-help">
+                Der Zielserver muss die Gateway-Adresse selbst erreichen. Der
+                Manager prüft die Verbindung dort, bevor er den Server anmeldet.
+                VPN, Firewall und Tunnel werden nicht automatisch verändert.
+              </p>
+              <label for="ssh-runtime"
+                >Laufzeitpaket-Pfad auf dem Rechner dieses Assistenten
+                (optional)</label
+              ><input
+                id="ssh-runtime"
+                placeholder="Vollständiger Pfad zu einem Linux-llama.cpp-ZIP oder TAR.GZ"
+              />
+              <button type="button" class="secondary" id="pick-ssh-runtime">
+                Laufzeitpaket auswählen
+              </button>
+              <p>
+                Leer lassen, wenn eine passende Laufzeit auf dem Zielserver
+                vorhanden ist. Das Paket muss zur Architektur und den Treibern
+                des Zielservers passen.
+              </p>
+              <label class="check-label"
+                ><input id="ssh-service" type="checkbox" /> Automatischen
+                Systemdienst einrichten (Linux mit systemd und
+                Root-Zugang)</label
+              >
+              <div class="choice-card">
+                <strong>Diese Änderungen werden vorgenommen</strong>
+                <p>
+                  Agent und optional Laufzeit im Benutzerverzeichnis
+                  installieren, mit der Zentrale anmelden und im Hintergrund
+                  starten. Bestehende Agent-Identitäten werden nicht
+                  überschrieben. Es werden keine Server gemietet und keine
+                  Treiber oder Firewallregeln geändert. Ein Systemdienst wird
+                  nur auf ausdrücklichen Wunsch und bei vorhandener
+                  Unterstützung eingerichtet. Andernfalls läuft der Agent im
+                  Hintergrund. Ein angeforderter, aber fehlgeschlagener
+                  Systemdienst wird als Fehler angezeigt; es gibt keinen stillen
+                  Wechsel in Hintergrundbetrieb. Die Abschlussmeldung nennt den
+                  tatsächlichen Startmodus.
+                </p>
+              </div>
+            </div>
+            <div id="remote-central-options" hidden>
+              <label for="ssh-web-port">Dashboard-Port auf dem Server</label
+              ><input
+                id="ssh-web-port"
+                type="number"
+                min="1"
+                max="65535"
+                value="3000"
+              />
+              <label for="ssh-gateway-port">Gateway-Port auf dem Server</label
+              ><input
+                id="ssh-gateway-port"
+                type="number"
+                min="1"
+                max="65535"
+                value="8443"
+              />
+              <p>
+                Der Manager öffnet ausschließlich lokale SSH-Tunnel und
+                verbindet sie bei Unterbrechungen erneut. Er merkt sich die
+                Verbindung auf diesem Rechner. Keine Programme oder Schlüssel
+                werden auf den Server kopiert. Der Manager muss geöffnet
+                bleiben.
+              </p>
+            </div>
+            <button type="submit" id="ssh-install">
+              Agent installieren und verbinden
+            </button>
+          </section>
+          <p
+            style="white-space: pre-line"
+            id="ssh-result"
+            role="status"
+            aria-live="polite"
+          ></p>
+          <button type="button" id="ssh-back" class="secondary" hidden>
+            Zurück
+          </button>
+        </form>
+      </section>
+      <section class="panel" id="tunnel-panel" hidden>
+        <h2>Deine Zentrale</h2>
+        <p id="tunnel-state" role="status"></p>
+        <a id="open-central" target="_blank" rel="noopener noreferrer" hidden
+          >Zentrale öffnen ↗</a
+        >
+        <p>
+          Der Manager hält die Verbindung im Hintergrund. Bei unterbrochener
+          Verbindung kurz warten oder den SSH-Schlüssel entsperren.
+        </p>
+        <button type="button" class="secondary" id="reconnect-tunnel">
+          Verbindung erneut aufbauen</button
+        ><button type="button" id="disconnect-tunnel" class="secondary">
+          Verbindung trennen und Profil entfernen
+        </button>
+      </section>
+      <section class="panel setup-wizard" id="local-panel">
+        <ol class="steps" id="agent-steps" aria-label="Einrichtungsfortschritt">
+          <li>1 · Verbindung</li>
+          <li>2 · Laufzeit</li>
+          <li>3 · Prüfung</li>
+          <li>4 · Anmeldung</li>
+          <li>5 · Verbunden</li>
+        </ol>
+        <form id="enroll-form" novalidate>
+          <section data-agent-step="0">
+            <h2>Verbindung zur Zentrale auswählen</h2>
+            <p>
+              Wähle die Verbindungsdatei, die du in deiner Zentrale unter
+              „Server hinzufügen“ erstellt hast.
+            </p>
+            <label for="bundle">Verbindungsdatei</label
+            ><input id="bundle" type="file" accept=".json" />
+            <p id="bundle-info" role="status"></p>
+            <details>
+              <summary>
+                Bestehenden Agenten aus einer Sicherung wiederherstellen
+              </summary>
+              <p>
+                Nur nach Abschalten der bisherigen Instanz verwenden. Dieselbe
+                Agent-Identität darf nicht auf zwei laufenden Rechnern verwendet
+                werden.
+              </p>
+              <label for="restore-file"
+                >Agent-Sicherung (ZIP oder alte Pilot-TAR.GZ)</label
+              ><input
+                id="restore-file"
+                type="file"
+                accept=".zip,.gz,.tgz,application/zip,application/gzip,application/x-gzip"
+              /><label class="check-label"
+                ><input id="restore-confirm" type="checkbox" /> Die vorherige
+                Agent-Instanz ist ausgeschaltet.</label
+              ><button type="button" id="restore-agent" class="secondary">
+                Agent wiederherstellen
+              </button>
+              <p id="restore-result" role="status"></p>
+            </details>
+          </section>
+          <section data-agent-step="1" hidden>
+            <h2>Modell-Laufzeit vorbereiten</h2>
+            <p id="runtime-note">
+              Eine vorhandene llama.cpp-Laufzeit wird automatisch gesucht. Du
+              kannst auch ein passendes Laufzeitpaket importieren.
+            </p>
+            <label for="runtime-archive"
+              >llama.cpp-Paket auswählen (optional, ZIP oder TAR.GZ)</label
+            ><input id="runtime-archive" type="file" accept=".zip,.gz,.tgz" />
+            <p class="muted">
+              Nur Pakete aus einer vertrauenswürdigen Quelle verwenden, passend
+              zu Betriebssystem, Prozessor und GPU-Treibern. Das Paket enthält
+              ausführbare Programme. Treiber werden nicht verändert.
+            </p>
+            <button
+              type="button"
+              id="runtime-import"
+              class="secondary"
+              disabled
+            >
+              Paket importieren und prüfen
+            </button>
+            <p id="runtime-result" role="status" aria-live="polite"></p>
+            <details id="advanced-settings">
+              <summary>Erweiterte Einstellungen</summary>
+              <label for="binary"
+                >llama-server: vollständiger Programmpfad</label
+              ><input id="binary" placeholder="Wird automatisch gesucht" />
+              <label for="engine">Lokale Modellserver-Adresse</label
+              ><input id="engine" value="http://127.0.0.1:8082" />
+              <label for="existing-model"
+                >Vorhandene GGUF-Datei (optional)</label
+              ><input
+                id="existing-model"
+                placeholder="Leer lassen, um das Modell später herunterzuladen"
+              />
+              <p>
+                Eine vorhandene Datei wird vor dem Start gegen die
+                Modell-Prüfsumme geprüft und ohne zweite Kopie verwendet.
+              </p>
+              <label for="models">Modellverzeichnis</label><input id="models" />
+            </details>
+          </section>
+          <section data-agent-step="2" hidden>
+            <h2>Rechner und Verbindung prüfen</h2>
+            <p>
+              Die Anmeldung erfolgt erst im nächsten Schritt. Diese Prüfung
+              verbraucht den Anmeldecode nicht.
+            </p>
+            <ul id="setup-checks" class="checks" aria-live="polite"></ul>
+            <button id="run-checks" type="button">Prüfung starten</button>
+          </section>
+          <section data-agent-step="3" hidden>
+            <h2>Mit der Zentrale verbinden</h2>
+            <p id="connect-summary"></p>
+            <p>
+              Der Agent erhält eine eigene Identität und verbindet sich
+              ausgehend mit der Zentrale. Das Modell wird anschließend im
+              zentralen Assistenten eingerichtet.
+            </p>
+            <button id="submit" type="submit">Rechner jetzt verbinden</button>
+          </section>
+          <section data-agent-step="4" hidden>
+            <h2>Rechner ist angemeldet</h2>
+            <p id="connected-summary"></p>
+            <p>
+              Wechsle zur Zentrale zurück. Dort geht es mit Modelldownload,
+              Start und einer echten Testantwort weiter. Dieser Agent muss dafür
+              laufen.
+            </p>
+            <button id="edit-settings" type="button" class="secondary">
+              Rechnereinstellungen ändern
+            </button>
+          </section>
+          <p id="result" role="status" aria-live="polite"></p>
+          <button id="save-settings" type="button" class="secondary" hidden>
+            Einstellungen speichern und Agent neu starten
+          </button>
+          <div class="wizard-nav">
+            <button id="agent-back" type="button" class="secondary" hidden>
+              Zurück</button
+            ><button id="agent-next" type="button">Weiter zur Laufzeit</button>
+          </div>
+        </form>
+      </section>
+      <section class="panel" id="operation-panel" hidden>
+        <h2>Betrieb und Sicherung</h2>
+        <p id="restart-mode" role="status"></p>
+        <p id="autostart-description">
+          Automatischen Start bei Benutzeranmeldung einrichten. Für
+          unbeaufsichtigte Server ist ein Systemdienst erforderlich.
+        </p>
+        <button id="autostart-enable" type="button">
+          Bei Anmeldung starten</button
+        ><button id="autostart-disable" class="secondary" type="button">
+          Autostart entfernen
+        </button>
+        <p id="autostart-result" role="status"></p>
+        <button id="backup-agent" type="button" class="secondary">
+          Agent-Einstellungen sichern
+        </button>
+        <p>
+          Die Sicherung enthält vertrauliche Zugangsdaten, keine Modelle oder
+          Laufzeitdateien. Vor dem Abschalten von kurzlebigen Servern
+          herunterladen und geschützt aufbewahren.
+        </p>
+        <p id="backup-result" role="status"></p>
+      </section>
+      <details class="panel">
+        <summary>
+          Zentralen-Sicherung auf diesem Rechner wiederherstellen
+        </summary>
+        <p>
+          Für den Umzug oder eine Wiederherstellungsprüfung. Importiert einen
+          geprüften KI-Basis-Datenstand in einen leeren Ordner auf dem Rechner
+          dieses Managers. Start und Dienstverwaltung erfolgen separat. Dies
+          stellt keinen entfernten Cloudserver wieder her.
+        </p>
+        <label for="central-restore-file"
+          >Zentralen-Sicherung (ZIP oder alte Pilot-TAR.GZ)</label
+        ><input
+          id="central-restore-file"
+          type="file"
+          accept=".zip,.gz,.tgz,application/zip,application/gzip,application/x-gzip"
+        />
+        <label for="central-restore-dir"
+          >Vollständiger Pfad eines leeren Zielordners</label
+        ><input
+          id="central-restore-dir"
+          placeholder="Absoluter Ordnerpfad auf diesem Rechner"
+        />
+        <label class="check-label"
+          ><input id="central-restore-confirm" type="checkbox" /> Die bisherige
+          Zentrale ist ausgeschaltet. Ich starte keine zweite Instanz mit
+          denselben Identitäten.</label
+        >
+        <button id="restore-central" type="button">
+          Sicherung prüfen und Daten wiederherstellen
+        </button>
+        <p id="central-restore-result" role="status"></p>
+      </details>
+      <details class="panel">
+        <summary>Verbindungsstatus und technische Details</summary>
+        <pre id="status">Wird geladen …</pre>
+      </details>
+      <section class="panel">
+        <h2>KI-Basis auf diesem Rechner beenden</h2>
+        <p>
+          Beendet diesen Agenten und die vom Manager gehaltenen
+          SSH-Verbindungen. Cloud-Server werden dadurch nicht ausgeschaltet.
+        </p>
+        <button type="button" class="secondary" id="quit-manager">
+          Programm beenden
+        </button>
+        <p id="quit-result" role="status"></p>
+      </section>
+    </main>
+  </body>
+</html>

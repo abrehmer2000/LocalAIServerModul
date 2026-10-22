@@ -1,0 +1,23 @@
+{
+  "listen": "127.0.0.1:8080",
+  "database": "data/gateway.db",
+  "timeout_seconds": 180,
+  "max_body_bytes": 1048576,
+  "max_output_tokens": 2048,
+  "keys": [
+    {
+      "id": "first-app",
+      "sha256": "REPLACE_WITH_HASH_FROM_KEYGEN"
+    }
+  ],
+  "nodes": [
+    {
+      "id": "local-01",
+      "url": "http://127.0.0.1:8081",
+      "model": "gemma-4-26b-a4b",
+      "upstream_model": "gemma-4-26b-a4b",
+      "revision": "REPLACE_WITH_MODEL_SHA256_AND_ENGINE_VERSION",
+      "capacity": 1
+    }
+  ]
+}

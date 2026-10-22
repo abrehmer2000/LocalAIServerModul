@@ -1,0 +1,13 @@
+{
+  "listen": "127.0.0.1:8443",
+  "database": "data/gateway.db",
+  "tls_cert": "pki/gateway.crt",
+  "tls_key": "pki/gateway.key",
+  "control_ca_cert": "pki/ca.crt",
+  "control_ca_key": "pki/ca.key",
+  "timeout_seconds": 180,
+  "max_body_bytes": 1048576,
+  "max_output_tokens": 2048,
+  "keys": [{"id": "first-app", "sha256": "REPLACE_WITH_HASH_FROM_KEYGEN"}],
+  "nodes": []
+}

@@ -1,0 +1,432 @@
+<!doctype html>
+<html lang="de">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>KI-Basis · Lokale KI</title>
+    <link rel="stylesheet" href="/style.css" />
+    <script src="/app.js" defer></script>
+  </head>
+  <body>
+    <header>
+      <a class="brand" href="/" aria-label="KI-Basis Startseite"
+        ><span class="mark">K</span> KI-Basis
+        <span class="version">Entwicklung</span></a
+      ><span class="local"><span class="dot"></span> Eigene Infrastruktur</span>
+    </header>
+    <main>
+      <nav
+        id="dashboard-nav"
+        class="dashboard-nav"
+        aria-label="Verwaltung"
+        hidden
+      >
+        <div>
+          <strong>Deine KI-Zentrale</strong><span id="signed-in-as"></span>
+        </div>
+        <div class="actions">
+          <button type="button" id="new-server">+ Server hinzufügen</button
+          ><a href="#managed-devices">Server</a
+          ><button type="button" class="secondary" id="refresh-top">
+            Aktualisieren</button
+          ><a href="#test-panel">API testen</a
+          ><a href="#backup-panel">Sicherung</a><a href="#audit-panel">Audit</a
+          ><button type="button" class="secondary" id="disconnect-top">
+            Abmelden
+          </button>
+        </div>
+        <p id="dashboard-message" role="status" aria-live="polite"></p>
+      </nav>
+      <div class="eyebrow">DEIN LOKALES KI-BACKEND</div>
+      <div class="intro">
+        <div>
+          <h1>Ein Zugang.<br />Mehr Möglichkeiten.</h1>
+          <p>
+            Modelle auf deinen Servern. Eine gemeinsame API.<br />Nachvollziehbar,
+            erweiterbar und unter deiner Kontrolle.
+          </p>
+        </div>
+        <div
+          class="topology"
+          aria-label="Anwendungen verbinden sich über das Gateway mit Modellservern"
+        >
+          <div>Anwendungen</div>
+          <span>↓</span>
+          <div class="gateway-node">KI-Basis Gateway</div>
+          <span>↓</span>
+          <div class="replicas">
+            <span>CPU</span><span>GPU</span><span>Weitere Knoten</span>
+          </div>
+        </div>
+      </div>
+      <section class="metrics" aria-label="Systemübersicht">
+        <article>
+          <div class="label">Gateway</div>
+          <div class="metric" id="gateway-status">Wird geprüft …</div>
+          <p id="gateway-note">Verbindung zum API-Prozess</p>
+        </article>
+        <article>
+          <div class="label">Bereite Agenten</div>
+          <div class="metric" id="ready-count">—</div>
+          <p id="node-note">Zugang erforderlich</p>
+        </article>
+        <article>
+          <div class="label">Gelistete Modelle</div>
+          <div class="metric" id="model-count">—</div>
+          <p>Konfiguration, keine Qualitätsaussage</p>
+        </article>
+      </section>
+      <div class="columns">
+        <section class="panel">
+          <div class="panel-heading">
+            <h2>Mit dem Gateway verbinden</h2>
+            <span class="badge">API-Zugang</span>
+          </div>
+          <p class="muted">
+            API-Key und pseudonyme Benutzer-ID werden für Statusabfragen
+            benötigt. Der Key bleibt nur im Arbeitsspeicher dieses Tabs.
+          </p>
+          <form id="connect-form">
+            <label for="api-key">API-Key</label
+            ><input
+              id="api-key"
+              type="password"
+              autocomplete="off"
+              placeholder="kb_…"
+              required
+            /><label for="user-id">Benutzer-ID</label
+            ><input
+              id="user-id"
+              autocomplete="off"
+              placeholder="z. B. admin-01"
+              pattern="[a-zA-Z0-9][a-zA-Z0-9._:\-]{0,127}"
+              required
+            />
+            <div class="actions">
+              <button type="submit" id="connect-button">
+                Status laden <span>↗</span></button
+              ><button type="button" class="secondary" id="disconnect">
+                Trennen
+              </button>
+            </div>
+          </form>
+          <p id="admin-access-note" class="muted"></p>
+          <p id="connection-message" role="status" aria-live="polite">
+            Noch nicht verbunden.
+          </p>
+        </section>
+        <section class="panel model-panel">
+          <div class="panel-heading">
+            <h2>Dein Standardmodell</h2>
+            <span class="badge purple">Standardprofil</span>
+          </div>
+          <div class="model-icon">G<span>4</span></div>
+          <h3>Gemma 4 <span>26B A4B</span></h3>
+          <p class="muted">Mixture-of-Experts · Instruction-tuned</p>
+          <div class="model-tags">
+            <span>GGUF</span><span>QAT Q4_0</span><span>llama.cpp</span>
+          </div>
+          <p class="model-note">
+            Als Standard vorgesehen. Das Modell ist erst verfügbar, wenn es
+            heruntergeladen und auf einem bereiten Knoten gestartet wurde.
+          </p>
+          <a
+            href="https://huggingface.co/google/gemma-4-26B-A4B-it-qat-q4_0-gguf"
+            target="_blank"
+            rel="noopener noreferrer"
+            >Offizielle Modelldateien ↗</a
+          >
+        </section>
+      </div>
+      <section class="panel nodes-panel" id="nodes-summary">
+        <div class="panel-heading">
+          <h2>Modellserver</h2>
+          <button type="button" class="secondary" id="refresh" disabled>
+            Aktualisieren ↻
+          </button>
+        </div>
+        <div id="nodes" class="empty">
+          Verbinde dich mit dem Gateway, um die registrierten Knoten zu sehen.
+        </div>
+      </section>
+      <section class="panel" id="admin-tools" hidden>
+        <div class="panel-heading">
+          <h2>Server und Modelle verwalten</h2>
+          <span class="badge">Administration</span>
+        </div>
+        <p class="muted">
+          Weitere Rechner verbinden sich ausgehend mit dieser Zentrale.
+          Cloud-Instanzen und eigene Rechner werden auf dieselbe Weise
+          aufgenommen.
+        </p>
+        <details id="add-server" class="setup-wizard">
+          <summary>+ Server hinzufügen</summary>
+          <p>
+            Cloud oder eigener Server: Jeder Rechner durchläuft dieselbe
+            Einrichtung.
+          </p>
+          <ol
+            class="steps"
+            id="server-steps"
+            aria-label="Fortschritt der Servereinrichtung"
+          >
+            <li>1 · Verbindung</li>
+            <li>2 · Modell</li>
+            <li>3 · Anmeldung</li>
+            <li>4 · Einrichtung</li>
+            <li>5 · Test</li>
+          </ol>
+          <form id="enroll-server">
+            <section data-server-step="0">
+              <h3>Welchen Rechner möchtest du verbinden?</h3>
+              <label for="connection-kind">Verbindungsweg</label>
+              <select id="connection-kind">
+                <option value="ssh">Linux-Server über SSH einrichten</option>
+                <option value="agent">
+                  Agent auf einem anderen Rechner öffnen
+                </option>
+                <option value="local">
+                  Agent auf demselben Rechner öffnen
+                </option>
+                <option value="headless">Linux-Server ohne Desktop</option>
+              </select>
+              <p id="connection-help" class="muted"></p>
+              <label for="server-name">Wie soll der Server heißen?</label>
+              <input
+                id="server-name"
+                placeholder="z. B. buero-gpu-02"
+                pattern="[a-zA-Z0-9][a-zA-Z0-9._:\-]{0,127}"
+                required
+              />
+              <label for="gateway-address">Adresse deiner Zentrale</label>
+              <input
+                id="gateway-address"
+                type="url"
+                placeholder="https://ki.meine-firma.de:8443"
+                required
+              />
+              <p class="muted">
+                Diese Adresse muss vom Agent-Rechner erreichbar sein. Das
+                Zertifikat wird geprüft. Bei einer privaten Zentrale VPN oder
+                einen eingerichteten Tunnel verwenden.
+              </p>
+              <label class="check-label" id="loopback-confirm" hidden
+                ><input type="checkbox" id="loopback-ack" /> Zentrale und Agent
+                laufen auf demselben Rechner oder ein Tunnel ist
+                eingerichtet.</label
+              >
+            </section>
+            <section data-server-step="1" hidden>
+              <h3>Welches Modell soll auf dem Server laufen?</h3>
+              <div class="choice-card">
+                <strong>Gemma 4 · 26B A4B</strong>
+                <p>
+                  Q4_0 · etwa 14,44 GB Download. Zusätzlicher Arbeitsspeicher
+                  wird für den Betrieb benötigt.
+                </p>
+              </div>
+              <label for="setup-gpu">Ausführung</label
+              ><select id="setup-gpu">
+                <option value="auto">
+                  GPU verwenden, falls die Laufzeit sie unterstützt
+                </option>
+                <option value="cpu">CPU verwenden</option>
+              </select>
+              <p>
+                Die endgültige Eignung wird auf dem Agent-Rechner geprüft. Eine
+                erkannte GPU allein bestätigt keine Beschleunigung.
+              </p>
+              <details>
+                <summary>Erweiterte Modelleinstellungen</summary>
+                <label for="server-model">API-Modellname</label
+                ><input id="server-model" value="gemma-4-26b-a4b" required />
+                <label for="server-revision">Modell- und Laufzeitversion</label
+                ><input
+                  id="server-revision"
+                  value="catalog-gemma4-q4_0-v1"
+                  required
+                />
+                <label for="server-capacity"
+                  >Gleichzeitige Anfragen auf diesem Server</label
+                ><input
+                  id="server-capacity"
+                  type="number"
+                  value="1"
+                  min="1"
+                  max="128"
+                  required
+                />
+                <p>
+                  Für mehrere Replikate wird die bereits verwendete
+                  Modellversion übernommen.
+                </p>
+              </details>
+            </section>
+            <section data-server-step="2" hidden>
+              <h3>Agent mit der Zentrale verbinden</h3>
+              <p id="enroll-summary"></p>
+              <p>
+                Erstelle eine einmalige Verbindungsdatei und öffne sie im
+                Agent-Assistenten auf dem gewünschten Rechner. Dort werden
+                Laufzeit und Verbindung geprüft.
+              </p>
+              <button type="submit" id="enroll-button">
+                Verbindungsdatei erstellen
+              </button>
+              <p id="enroll-result" role="status" aria-live="polite"></p>
+              <a id="bundle-download" hidden download="connection.json"
+                >Verbindungsdatei herunterladen</a
+              >
+              <p>
+                Die Datei ist zehn Minuten gültig und enthält einen
+                vertraulichen Anmeldecode. Bei Ablauf hier eine neue Datei
+                erstellen.
+              </p>
+            </section>
+            <section data-server-step="3" hidden>
+              <h3 id="setup-node-name">Auf Agent warten</h3>
+              <p id="setup-progress" role="status" aria-live="polite">
+                Öffne die Verbindungsdatei im Agent-Assistenten. Diese Ansicht
+                aktualisiert sich automatisch.
+              </p>
+              <progress
+                id="setup-download"
+                hidden
+                aria-label="Modelldownload"
+              ></progress>
+              <button type="button" class="secondary" id="setup-renew">
+                Verbindungsdatei erneuern
+              </button>
+              <button type="button" id="setup-start" disabled>
+                Modell herunterladen und starten
+              </button>
+              <p class="muted">
+                Der Auftrag lädt das ausgewählte Modell auf diesen Server und
+                startet dessen Modellprozess. Andere Server werden nicht
+                verändert.
+              </p>
+            </section>
+            <section data-server-step="4" hidden>
+              <h3>Antwort auf diesem Server prüfen</h3>
+              <p>
+                Der Test spricht genau den neuen Server an und prüft, ob eine
+                vollständige Textantwort ankommt.
+              </p>
+              <button type="button" id="setup-test">Testantwort prüfen</button>
+              <p id="setup-test-result" role="status" aria-live="polite"></p>
+              <button type="button" id="setup-finish" hidden>Zum Server</button>
+            </section>
+            <div class="wizard-nav">
+              <button type="button" class="secondary" id="server-back" hidden>
+                Zurück</button
+              ><button type="button" id="server-next">
+                Weiter zur Modellauswahl
+              </button>
+            </div>
+          </form>
+        </details>
+        <div id="managed-devices" class="empty">
+          Noch keine verwalteten Server.
+        </div>
+        <p id="admin-message" role="status" aria-live="polite"></p>
+      </section>
+      <section class="panel" id="backup-panel" hidden>
+        <h2>Sichern und später fortsetzen</h2>
+        <p>
+          Vor dem Abschalten kurzlebiger Cloud-Server die Zentrale und jeden
+          Agenten sichern. Die Archive enthalten vertrauliche Schlüssel.
+          Modelldateien werden nicht mitgesichert.
+        </p>
+        <button type="button" id="backup-central">Zentrale sichern</button>
+        <p id="backup-central-result" role="status"></p>
+        <details>
+          <summary>Was wird gesichert?</summary>
+          <p>
+            Konfiguration, Zertifikate und eine konsistente Datenbankkopie mit
+            Audit-Verlauf. Die Agent-Identität wird im jeweiligen
+            Agent-Assistenten gesichert. Das Abschalten erfolgt beim Anbieter;
+            mögliche Speicherkosten dort prüfen.
+          </p>
+        </details>
+      </section>
+      <section class="panel" id="audit-panel" hidden>
+        <div class="panel-heading">
+          <h2>Audit-Trail</h2>
+          <button type="button" id="load-audit" class="secondary">
+            Letzte Einträge laden
+          </button>
+        </div>
+        <p class="muted">
+          Metadaten zu Anfragen und Verwaltungsaktionen. Keine Prompts oder
+          Modellantworten. Die letzten 100 Einträge werden angezeigt.
+        </p>
+        <div class="table-scroll">
+          <table>
+            <thead>
+              <tr>
+                <th>Zeit</th>
+                <th>Ereignis</th>
+                <th>Benutzer / Akteur</th>
+                <th>Server</th>
+                <th>Ergebnis</th>
+              </tr>
+            </thead>
+            <tbody id="audit-rows"></tbody>
+          </table>
+        </div>
+      </section>
+      <section class="panel" id="test-panel" hidden>
+        <h2>API ausprobieren</h2>
+        <p class="muted">
+          Die Anfrage verwendet deinen verbundenen API-Zugang und deine
+          Benutzer-ID. Im Audit werden ausschließlich Metadaten gespeichert.
+        </p>
+        <form id="test-form">
+          <label for="test-model">Modell</label
+          ><select id="test-model"></select
+          ><label for="test-prompt">Nachricht</label
+          ><input
+            id="test-prompt"
+            placeholder="Was ist eine API?"
+            maxlength="4000"
+            required
+          />
+          <div class="actions">
+            <button type="submit" id="test-send">Antwort streamen</button
+            ><button type="button" class="secondary" id="test-cancel" disabled>
+              Abbrechen
+            </button>
+          </div>
+        </form>
+        <p id="test-message" role="status"></p>
+        <pre id="test-answer"></pre>
+      </section>
+      <section class="api-section">
+        <div>
+          <div class="eyebrow">API ZUERST</div>
+          <h2>Bereit für deine Anwendung.</h2>
+          <p>
+            OpenAI-kompatible Chat-Completions mit Streaming.<br />Ein Modell
+            pro Server, zusätzliche Kapazität durch weitere Knoten.
+          </p>
+        </div>
+        <pre><code>POST /v1/chat/completions
+Authorization: Bearer &lt;API-Key&gt;
+X-User-ID: &lt;Benutzer-ID&gt;
+
+{
+  "model": "gemma-4-26b-a4b",
+  "messages": [{"role": "user", "content": "Hallo"}],
+  "stream": true
+}</code></pre>
+      </section>
+      <footer>
+        <span>KI-Basis · Lokaler Betrieb</span
+        ><span
+          >Audit mit Metadaten · Keine Usecase-Bewertung · Keine
+          Lizenzprüfung</span
+        >
+      </footer>
+    </main>
+  </body>
+</html>
