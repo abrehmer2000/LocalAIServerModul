@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=KI-Basis Agent
+Comment=Rechner mit KI-Basis verbinden
+Exec=sh -c 'cd "$(dirname "%k")" && ./Start-Agent.sh'
+Terminal=false
+Categories=Network;

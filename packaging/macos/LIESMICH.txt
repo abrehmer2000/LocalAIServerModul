@@ -1,0 +1,29 @@
+KI-Basis – lokale Vorschau fuer Mac mit Apple Silicon
+
+1. Paket vollstaendig entpacken, z. B. im Ordner Downloads.
+2. Start.command oeffnen. Das Terminal und anschliessend der Browser starten.
+3. API-Key aus dem Terminal kopieren und in der Webseite eintragen.
+   Benutzer-ID: local-preview
+4. "Status laden" anklicken.
+
+Die Anwendung laeuft dann auf deinem Mac unter http://127.0.0.1:3000.
+Go, Python, Docker und Modellgewichte werden fuer diese Vorschau nicht benoetigt.
+Sie zeigt ein echtes lokales Gateway. Ohne angemeldete Agenten sind 0 Knoten normal.
+Gemma 4 MoE ist als gewuenschtes Standardprofil hinterlegt, aber nicht installiert.
+
+Beenden: im Terminal Ctrl+C druecken. Der Ordner Daten enthaelt nur lokale
+Konfiguration, API-Key, Zertifikate und Audit. Nicht weitergeben.
+
+Dies ist ein unsignierter Entwicklungsbuild. macOS kann beim ersten Start eine
+explizite Freigabe unter Systemeinstellungen > Datenschutz & Sicherheit verlangen.
+Keine globale Sicherheitseinstellung deaktivieren.
+
+Falls Start.command nicht ausfuehrbar ist: Terminal im entpackten Ordner oeffnen,
+"chmod +x Start.command ki-basis" ausfuehren und dann "./Start.command" starten.
+
+Port bereits belegt? Im Terminal:
+./ki-basis quickstart --dir ./Daten --port 3001 --gateway-port 8444 --open-browser
+
+macOS-Laufzeit wird durch GitHub CI geprueft, sofern der Workflow erfolgreich ist.
+Linux/CPU und Mehragenten-Inferenz sind separat getestet; Windows/GPU und
+Gemma-Inferenz auf deiner Hardware bleiben Pilotpruefungen.
