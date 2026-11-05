@@ -150,6 +150,8 @@ func (g *Gateway) models(w http.ResponseWriter, r *http.Request) {
 }
 
 type chatRequest struct {
+	ResponseFormat      *responseFormat   `json:"response_format,omitempty"`
+	CachePrompt         bool              `json:"cache_prompt"`
 	Model               string            `json:"model"`
 	Messages            []json.RawMessage `json:"messages"`
 	Stream              bool              `json:"stream,omitempty"`
@@ -184,21 +186,18 @@ func decodeRequest(w http.ResponseWriter, r *http.Request, c config.Config) (cha
 	if !config.ValidID(v.Model) || len(v.Messages) == 0 || len(v.Messages) > 1024 {
 		return v, errors.New("model and 1-1024 messages required")
 	}
-	for _, raw := range v.Messages {
-		var m struct {
-			Role    string `json:"role"`
-			Content string `json:"content"`
-			Name    string `json:"name,omitempty"`
-		}
-		md := json.NewDecoder(bytes.NewReader(raw))
-		md.DisallowUnknownFields()
-		if err := md.Decode(&m); err != nil {
-			return v, errors.New("text-only messages required")
-		}
-		if m.Role != "system" && m.Role != "user" && m.Role != "assistant" && m.Role != "developer" {
-			return v, errors.New("unsupported message role")
-		}
+	if err := validateMessages(v.Messages); err != nil {
+		return v, err
 	}
+	if err := v.ResponseFormat.prepare(); err != nil {
+		return v, err
+	}
+	if v.Stream && v.ResponseFormat != nil && v.ResponseFormat.Type != "text" {
+		return v, errors.New("structured responses require stream=false")
+	}
+	// Never reuse prompt caches, even if a caller explicitly requests it.
+	v.CachePrompt = false
+
 	if v.N != nil && *v.N != 1 {
 		return v, errors.New("only n=1 supported")
 	}
@@ -324,9 +323,12 @@ func (g *Gateway) chat(w http.ResponseWriter, r *http.Request) {
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != 200 {
-		failed = resp.StatusCode >= 500
-		e.Outcome = "upstream_rejected"
-		apiError(w, 502, e.Outcome, "Inference engine rejected request")
+		e.Status, e.Outcome = upstreamError(resp.StatusCode)
+		failed = resp.StatusCode >= 500 && resp.StatusCode != 503
+		if e.Outcome == "model_busy" {
+			w.Header().Set("Retry-After", retryAfter(resp.Header.Get("Retry-After")))
+		}
+		apiError(w, e.Status, e.Outcome, "Inference engine rejected request")
 		return
 	}
 	if v.Stream {
@@ -339,7 +341,20 @@ func (g *Gateway) chat(w http.ResponseWriter, r *http.Request) {
 	}
 	data, err := io.ReadAll(io.LimitReader(resp.Body, 16<<20+1))
 	if err != nil || len(data) > 16<<20 {
+		if ctx.Err() != nil {
+			e.Status = 504
+			e.Outcome = "timeout_or_cancelled"
+			apiError(w, 504, e.Outcome, "Inference unavailable")
+			return
+		}
+		e.Outcome = "invalid_upstream"
 		apiError(w, 502, "invalid_upstream", "Invalid inference response")
+		return
+	}
+	if err = validateCompletion(data, v.ResponseFormat); err != nil {
+		e.Outcome = "invalid_upstream"
+		failed = true
+		apiError(w, 502, "invalid_upstream", "Invalid or nonconforming inference response")
 		return
 	}
 	data, err = normalize(data, e.Model, &e)
