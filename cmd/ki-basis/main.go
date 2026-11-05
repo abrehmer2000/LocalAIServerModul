@@ -37,6 +37,8 @@ func run() error {
 	}
 	command := os.Args[1]
 	switch command {
+	case "init-central":
+		return centralInitCommand(os.Args[2:])
 	case "prozesslog-profile":
 		return prozesslogProfileCommand(os.Args[2:])
 	case "restore":
@@ -48,7 +50,7 @@ func run() error {
 	case "agent-ui":
 		return agentUICommand(os.Args[2:])
 	case "--help", "-h", "help":
-		fmt.Fprintln(os.Stdout, "KI-Basis: prozesslog-profile | serve | quickstart | agent-ui | agent-bootstrap | restore | agent join|run | keygen | audit-verify | audit-export | init-tls | join-token | node-list | node-revoke | admin-key")
+		fmt.Fprintln(os.Stdout, "KI-Basis: init-central | prozesslog-profile | serve | quickstart | agent-ui | agent-bootstrap | restore | agent join|run | keygen | audit-verify | audit-export | init-tls | join-token | node-list | node-revoke | admin-key")
 		return nil
 	case "quickstart":
 		return quickstartCommand(os.Args[2:])

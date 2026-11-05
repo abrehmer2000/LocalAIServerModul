@@ -226,3 +226,32 @@ Nicht nachgewiesen: echte MoE-/Vision-Qualität, konkrete llama.cpp-Flagunterst�
 Antworten nahe der 300-s-Grenze, externer Proxy, native Windows-/macOS-Bedienung,
 Prozesslog-Import/Chat/Navigator/Last sowie AVV und Speicherung externer Komponenten.
 Die Anleitung und Freigabekriterien stehen in `PROZESSLOG-GATEWAY.md`.
+
+
+## Zwei-Server-Vorbereitung (2026-11-05)
+
+Referenz aus dem früheren Chat: Windows Server 2025, 8 vCPUs, 32 GB RAM, 640 GB
+SSD, CPU-only; frühere Instanzen und IP wurden gelöscht. Keine laufende
+Infrastruktur aus dieser Arbeitsumgebung geprüft oder geändert.
+
+- Erneut `go test -race -count=1 -timeout=180s ./...` und `go vet ./...`: bestanden.
+- Neuer `init-central`-Pfad: frisches Verzeichnis, getrennte Schlüsselrollen,
+  Zertifikatsnamen für Remotehost und Loopback sowie Schutz vor Überschreiben
+  geprüft. Windows-ACL-Code erfolgreich für Windows amd64 gebaut; die native
+  Windows-Ausführung bleibt der GitHub-CI bzw. dem echten Server vorbehalten.
+- Aus dem gebauten Binary eine neue Zentrale erzeugt, über HTTPS mit ihrer
+  erzeugten CA und privater Anwendungs-Zugangsdatei gegen synthetisches Backend
+  geprüft: zehn Smoke-Prüfungen bestanden. Die bewusst falsche Schlüsselvariable
+  wurde durch die ausdrücklich gewählte private Zugangsdatei ersetzt.
+- Zwei Python-Tests des schreibfreien Quellstandsprüfers bestanden. Er liest keine
+  `.env` und importiert Prozesslog nicht. Auf dem veröffentlichten Windows-Zweig
+  `741fa50` meldet er korrekt fünf fehlende Gateway-Merkmale; Windows-Installer
+  und Bereitschaftswerkzeug sind dort vorhanden. Kein grünes Gesamturteil für
+  diesen alten Prozesslog-Stand.
+- Zwölf bestehende Dashboard-Streaming-Fälle bestanden. Linux- und Windows-
+  Testbuild erstellt; Skript-Syntax geprüft. Downloadworkflows enthalten jetzt
+  Testskripte, Zwei-Server-Anleitung und `BUILD-COMMIT.txt`.
+
+Offen: unveröffentlichter Prozesslog-Gateway-Branch, vier Fehler in dessen
+veröffentlichtem Windows-Basis-CI-Lauf, reale Installation und alle fachlichen
+Abnahmeschritte auf den beiden neuen Servern. Details in `ZWEI-SERVER-TEST.md`.

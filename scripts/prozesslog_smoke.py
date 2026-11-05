@@ -32,12 +32,25 @@ def main():
     parser.add_argument('--base', default=os.getenv('OPENAI_BASE_URL', ''), help='HTTPS API base ending in /v1')
     parser.add_argument('--model', default=os.getenv('OPENAI_MODEL', ''))
     parser.add_argument('--ca', default=os.getenv('OPENAI_CA_BUNDLE') or None)
-    parser.add_argument('--user', default='prozesslog-synthetic-test')
+    parser.add_argument('--user', default=os.getenv('OPENAI_USER_ID', ''))
+    parser.add_argument('--access-file', help='private prozesslog-access.json from init-central')
     parser.add_argument('--parallel', type=int, default=4)
     parser.add_argument('--timeout', type=float, default=360)
     parser.add_argument('--report', help='write metadata-only JSON report (new file)')
     args = parser.parse_args()
-    key = os.getenv('OPENAI_API_KEY', '')
+    access = {}
+    if args.access_file:
+        try:
+            with open(args.access_file, encoding='utf-8') as handle:
+                access = json.load(handle)
+            if not isinstance(access, dict):
+                raise ValueError('invalid access file')
+        except (OSError, ValueError):
+            parser.error('cannot read private access file')
+    args.base = args.base or access.get('base_url', '')
+    args.ca = args.ca or access.get('ca_bundle')
+    args.user = args.user or access.get('user', 'prozesslog-synthetic-test')
+    key = access.get('key', '') if args.access_file else os.getenv('OPENAI_API_KEY', '')
     base = urllib.parse.urlsplit(args.base)
     if (base.scheme != 'https' or not base.hostname or base.username or base.password
             or base.query or base.fragment or not args.model or not key

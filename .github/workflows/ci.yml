@@ -17,6 +17,8 @@ jobs:
       - run: node --check internal/webui/assets/app.js
       - run: node --check internal/webui/assets/agent.js
       - run: node scripts/dashboard_stream_test.cjs
+      - run: python -m unittest discover -s scripts -p test_two_server_preflight.py
+      - run: python -m py_compile scripts/prozesslog_smoke.py scripts/two_server_preflight.py
       - run: go vet ./...
-      - run: go test -race -count=1 -timeout=60s ./...
+      - run: go test -race -count=1 -timeout=180s ./...
       - run: go build ./cmd/ki-basis

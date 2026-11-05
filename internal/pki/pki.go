@@ -67,7 +67,7 @@ func Load(certPath, keyPath string) (*Authority, error) {
 	}
 	return &Authority{Cert: c, Key: key, PEM: pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: c.Raw})}, nil
 }
-func (a *Authority) Sign(csrPEM []byte, id, host string, gateway bool) ([]byte, error) {
+func (a *Authority) Sign(csrPEM []byte, id, host string, gateway bool, additionalHosts ...string) ([]byte, error) {
 	block, _ := pem.Decode(csrPEM)
 	if block == nil {
 		return nil, errors.New("invalid CSR")
@@ -84,11 +84,14 @@ func (a *Authority) Sign(csrPEM []byte, id, host string, gateway bool) ([]byte, 
 	}
 	now := time.Now()
 	c := &x509.Certificate{SerialNumber: serial(), Subject: pkix.Name{CommonName: id}, NotBefore: now.Add(-5 * time.Minute), NotAfter: now.AddDate(0, 0, 90), KeyUsage: x509.KeyUsageDigitalSignature, ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth, x509.ExtKeyUsageServerAuth}, BasicConstraintsValid: true}
-	if host != "" {
-		if ip := net.ParseIP(host); ip != nil {
-			c.IPAddresses = []net.IP{ip}
+	for _, name := range append([]string{host}, additionalHosts...) {
+		if name == "" {
+			continue
+		}
+		if ip := net.ParseIP(name); ip != nil {
+			c.IPAddresses = append(c.IPAddresses, ip)
 		} else {
-			c.DNSNames = []string{host}
+			c.DNSNames = append(c.DNSNames, name)
 		}
 	}
 	if gateway {
@@ -121,7 +124,7 @@ func CSR() (keyPEM, csrPEM []byte, err error) {
 }
 
 // Init writes into a newly created directory; an existing installation is never overwritten.
-func Init(dir, host string) error {
+func Init(dir, host string, additionalHosts ...string) error {
 	if host == "" || net.ParseIP(host) == nil && len(host) > 253 {
 		return errors.New("valid host required")
 	}
@@ -140,7 +143,7 @@ func Init(dir, host string) error {
 	if err != nil {
 		return err
 	}
-	cert, err := a.Sign(csr, GatewayIdentity, host, true)
+	cert, err := a.Sign(csr, GatewayIdentity, host, true, additionalHosts...)
 	if err != nil {
 		return err
 	}

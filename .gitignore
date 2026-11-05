@@ -11,3 +11,7 @@ __pycache__/
 *.pyc
 
 config.*.local.json
+
+/Zentrale/
+/Agent/
+*-access.json

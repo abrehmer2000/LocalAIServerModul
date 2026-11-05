@@ -41,6 +41,9 @@ Eine Kundenauslieferung benötigt weitere Betriebssystem-, Installations- und Si
 Das [Prozesslog-Testprofil](PROZESSLOG-GATEWAY.md) beschreibt Bild-/Schema-Unterstützung,
 300-s-Inferenzbudget, vier Slots, Kontext je Anfrage, Konfigurationsmigration und Rückweg.
 Die echte MoE-/Vision-Abnahme bleibt erforderlich.
+Für Zentrale plus Prozesslog auf einem Windows-Server und einen getrennten
+KI-Agenten siehe [Zwei-Server-Test](ZWEI-SERVER-TEST.md). `init-central` bereitet
+eine neue netzwerkfähige Zentrale mit getrennten Admin-/Anwendungsschlüsseln vor.
 
 ## Bauen und prüfen
 
