@@ -24,6 +24,7 @@ import (
 
 // ModelManager owns only its own process and files in its private model directory.
 type ModelManager struct {
+	Runtime                    EngineOptions
 	ExistingModel              string
 	mu                         sync.Mutex
 	report                     management.Report
@@ -173,10 +174,15 @@ func (m *ModelManager) execute(ctx context.Context, p management.Plan) {
 	if p.GPU == "cpu" {
 		layers = "0"
 	}
+	runtimeArgs, err := m.Runtime.arguments(ctx, m.capacity, 0)
+	if err != nil {
+		m.update(p.Generation, "error", "invalid_runtime_options", 0, 0, "")
+		return
+	}
 	m.update(p.Generation, "starting", "", p.Model.Size, p.Model.Size, p.Model.SHA256)
 	// The binary is a local operator setting, never supplied by the gateway or a model repository.
 	for attempt := 0; attempt < 5 && ctx.Err() == nil; attempt++ {
-		cmd := exec.CommandContext(ctx, m.binary, "--model", path, "--alias", m.alias, "--host", u.Hostname(), "--port", u.Port(), "--ctx-size", "2048", "--parallel", strconv.Itoa(m.capacity), "--n-gpu-layers", layers)
+		cmd := exec.CommandContext(ctx, m.binary, append([]string{"--model", path, "--alias", m.alias, "--host", u.Hostname(), "--port", u.Port(), "--n-gpu-layers", layers}, runtimeArgs...)...)
 		cmd.Env = RuntimeEnvironment(m.binary)
 		configureProcess(cmd)
 		cmd.Cancel = func() error { return killProcessTree(cmd) }

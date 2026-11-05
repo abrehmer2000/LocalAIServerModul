@@ -146,7 +146,7 @@ func (b *Broker) Context(node, id string) (context.Context, bool) {
 	}
 	return j.ctx, true
 }
-func (b *Broker) Deliver(ctx context.Context, node, id string, status int, contentType string, body io.Reader) error {
+func (b *Broker) Deliver(ctx context.Context, node, id string, status int, contentType string, body io.Reader, retryAfter ...string) error {
 	if status < 100 || status > 599 {
 		return errors.New("invalid response status")
 	}
@@ -162,6 +162,9 @@ func (b *Broker) Deliver(ctx context.Context, node, id string, status int, conte
 		return errors.New("invalid response status")
 	}
 	resp := &http.Response{StatusCode: status, Header: http.Header{"Content-Type": []string{contentType}}}
+	if len(retryAfter) > 0 && retryAfter[0] != "" {
+		resp.Header.Set("Retry-After", retryAfter[0])
+	}
 	select {
 	case j.response <- resp:
 	case <-j.ctx.Done():

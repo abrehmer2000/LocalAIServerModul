@@ -3,6 +3,7 @@ package control_test
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -162,5 +163,107 @@ func TestAdminRequiresPrivilegeAndBundleDoesNotLeakSecrets(t *testing.T) {
 	}
 	if _, err := f.store.Verify(context.Background(), func(r audit.Record) error { return nil }); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestOutboundLongImageRequestAndRetryAfter(t *testing.T) {
+	if testing.Short() {
+		t.Skip("31-second outbound inference regression")
+	}
+	f := adminFixture(t)
+	f.server.Close()
+	f.g.Close()
+	f.control.Close()
+	f.c.TimeoutSeconds = 60
+	f.c.MaxBodyBytes = 16 << 20
+	f.start()
+	f.client.Timeout = 55 * time.Second
+	var calls atomic.Int32
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/health" {
+			fmt.Fprint(w, `{"status":"ok"}`)
+			return
+		}
+		if r.URL.Path == "/v1/models" {
+			fmt.Fprint(w, `{"data":[{"id":"chat"}]}`)
+			return
+		}
+		var body struct {
+			Messages    []json.RawMessage `json:"messages"`
+			CachePrompt *bool             `json:"cache_prompt"`
+			Thinking    struct {
+				EnableThinking bool `json:"enable_thinking"`
+			} `json:"chat_template_kwargs"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Error(err)
+			w.WriteHeader(400)
+			return
+		}
+		if body.CachePrompt == nil || *body.CachePrompt || !body.Thinking.EnableThinking {
+			t.Error("cache/thinking changed in tunnel")
+		}
+		if len(body.Messages) != 1 || len(body.Messages[0]) < 8<<20 {
+			t.Error("large image request truncated")
+		}
+		if calls.Add(1) > 1 {
+			w.Header().Set("Retry-After", "17")
+			w.WriteHeader(429)
+			return
+		}
+		select {
+		case <-time.After(31 * time.Second):
+			fmt.Fprint(w, `{"choices":[{"message":{"content":"ok"}}]}`)
+		case <-r.Context().Done():
+		}
+	}))
+	defer backend.Close()
+	_, path := f.enrollOutbound("long-image", "chat")
+	runner, err := agent.New(path, backend.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer runner.Close()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan struct{})
+	go func() { defer close(done); runner.RunOutbound(ctx, func(error) {}) }()
+	defer func() { cancel(); <-done }()
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		if err = runner.Heartbeat(ctx, true); err != nil {
+			t.Fatal(err)
+		}
+		if f.g.Pool().Snapshot()[0].State == "ready" {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("outbound worker not ready")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	image := append([]byte("\x89PNG\r\n\x1a\n"), make([]byte, (8<<20)-8)...)
+	body := `{"model":"chat","messages":[{"role":"user","content":[{"type":"text","text":"` + strings.Repeat("n", 70000) + `"},{"type":"image_url","image_url":{"url":"data:image/png;base64,` + base64.StdEncoding.EncodeToString(image) + `"}}]}],"chat_template_kwargs":{"enable_thinking":true}}`
+	// Heartbeats must continue while generation exceeds the ready lease.
+	hbDone := make(chan struct{})
+	go func() { defer close(hbDone); runner.RunHeartbeats(ctx, func(error) {}) }()
+	defer func() { cancel(); <-hbDone }()
+	for i := 0; i < 2; i++ {
+		req, _ := http.NewRequest("POST", f.server.URL+"/v1/chat/completions", strings.NewReader(body))
+		req.Header.Set("Authorization", "Bearer "+key)
+		req.Header.Set("X-User-ID", "synthetic-user")
+		req.Header.Set("Content-Type", "application/json")
+		resp, err := f.client.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		data, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if i == 0 && (resp.StatusCode != 200 || !bytes.Contains(data, []byte(`"content":"ok"`))) {
+			t.Fatalf("delayed response %d: %s", resp.StatusCode, data)
+		}
+		if i == 1 && (resp.StatusCode != 429 || resp.Header.Get("Retry-After") != "17") {
+			t.Fatalf("lost overload status/header: %d %s", resp.StatusCode, resp.Header.Get("Retry-After"))
+		}
 	}
 }

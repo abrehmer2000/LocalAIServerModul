@@ -157,6 +157,7 @@ func validate(s State) (tls.Certificate, error) {
 }
 
 type Runner struct {
+	Runtime   EngineOptions
 	Manager   *ModelManager
 	mu        sync.RWMutex
 	state     State
