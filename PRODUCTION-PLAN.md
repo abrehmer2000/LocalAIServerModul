@@ -3,11 +3,13 @@
 ## Produktgrenze
 
 Eine getrennte Installation pro Kunde: eine Zentrale, mehrere Modell-Agenten,
-ein OpenAI-kompatibler Texteinstieg, API-Schlüssel und pseudonyme Benutzer-ID,
+ein OpenAI-kompatibler Einstieg für Text und eingebettete Bilder, API-Schlüssel und pseudonyme Benutzer-ID,
 Metadaten-Audit, ein gepflegter Modellkatalog sowie Sicherung/Wiederherstellung.
 Keine Cloud-Verträge, VM-Erstellung, Kubernetes-Steuerung, Benutzerkontenplattform,
 Embeddings, Tool-Calling oder beliebige automatische Treiberinstallation im ersten
-Produktivumfang. Keine neuen Funktionen bis zur Abnahme dieses Kerns.
+Produktivumfang. Die gezielte Erweiterung für den Prozesslog-Test ist in
+[PROZESSLOG-GATEWAY.md](PROZESSLOG-GATEWAY.md) abgegrenzt. Weitere Funktionen
+bleiben bis zur Abnahme dieses Kerns zurückgestellt.
 
 Die Einrichtung bleibt anbieterneutral. Unterstützt wird eine konkret getestete
 Kombination aus Betriebssystem, Architektur und Laufzeit; ein Anbietername ist

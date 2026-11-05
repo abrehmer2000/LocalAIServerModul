@@ -14,7 +14,7 @@ Der Umfang wird jetzt eingefroren; Freigabekriterien und die nächsten Schritte 
 
 ## Aktueller Umfang
 
-- `POST /v1/chat/completions`: Textnachrichten, JSON-Antworten und echtes SSE-Streaming.
+- `POST /v1/chat/completions`: Text und eingebettete Bilder, validierte JSON-/Schema-Antworten sowie Text-SSE-Streaming.
 - `GET /v1/models`: konfigurierte Modellnamen.
 - Bearer API-Keys, nur als SHA-256-Hash in der Konfiguration.
 - Verpflichtende pseudonyme `X-User-ID` für beide API-Endpunkte.
@@ -35,6 +35,12 @@ Die lokale Agenteneinrichtung öffnet sich per Starter im Browser. Siehe [DASHBO
 Vollständige Benutzerkontenverwaltung, zusätzliche Downloadkataloge, Embeddings, Tool-Calling,
 signierte Systeminstaller sowie automatische GPU-Treiberinstallation und eine automatische Auswahl vertrauenswürdiger Laufzeit-Downloads fehlen noch. Vom Betreiber ausgewählte Laufzeitarchive können bereits importiert werden.
 Eine Kundenauslieferung benötigt weitere Betriebssystem-, Installations- und Sicherheitstests.
+
+## Prozesslog-Gateway-Test
+
+Das [Prozesslog-Testprofil](PROZESSLOG-GATEWAY.md) beschreibt Bild-/Schema-Unterstützung,
+300-s-Inferenzbudget, vier Slots, Kontext je Anfrage, Konfigurationsmigration und Rückweg.
+Die echte MoE-/Vision-Abnahme bleibt erforderlich.
 
 ## Bauen und prüfen
 
@@ -168,11 +174,13 @@ Eine Engine nur im privaten Netz bereitstellen und auf Gateway-Zugriff begrenzen
 
 ## API-Vertrag
 
-Unterstützte Felder: `model`, `messages` (Text; Rollen system/developer/user/assistant; optional name),
+Unterstützte Felder: `model`, `messages` (Text oder eingebettete Bildteile; Rollen system/developer/user/assistant; optional name),
 `stream`, `max_tokens` oder `max_completion_tokens`, `temperature`, `top_p`, `stop`, `seed`,
-`frequency_penalty`, `presence_penalty`, `stream_options.include_usage`, `n` (nur 1), optional `user`.
+`frequency_penalty`, `presence_penalty`, `stream_options.include_usage`, `n` (nur 1), optional `user`,
+`chat_template_kwargs.enable_thinking`, `response_format` und `cache_prompt` (wird immer auf false gesetzt).
 Ein gesetztes `user` muss `X-User-ID` entsprechen und wird vor der Weiterleitung entfernt.
-Unbekannte Felder werden abgewiesen. Tool-Calling, Bilder und weitere Endpunkte werden noch nicht unterstützt.
+Unbekannte Felder werden abgewiesen. Tool-Calling und weitere Endpunkte werden noch nicht unterstützt.
+Bildgrenzen, strukturierte Ausgabe und Fehlerdetails stehen im [Prozesslog-Profil](PROZESSLOG-GATEWAY.md).
 Die tatsächliche Parameterunterstützung hängt außerdem von der verwendeten Engine ab.
 
 - `X-User-ID`: 1–128 ASCII-Zeichen, Buchstaben/Ziffern sowie `._:-`; Beginn mit Buchstabe/Ziffer.

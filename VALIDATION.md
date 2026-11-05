@@ -198,3 +198,31 @@ und Abweisung einer fremden Identität. Der Browser-Smoke restauriert eine Zentr
 auch grafisch und prüft anschließend die Audit-Kette.
 Ein Systemboot, eine tatsächlich laufende systemd-Installation und echte GPUs
 werden damit nicht simuliert; dafür gilt [TEST-MORGEN.md](TEST-MORGEN.md).
+
+
+## Prozesslog-Gateway-Erweiterung (2026-11-05)
+
+Code-Stand vor dem Dokumentationscommit: `2f9d5f8` (Basis `84cc728`).
+Getestet in der Linux-amd64-Cloud-Arbeitsumgebung mit Go 1.25.3:
+
+- `go test -race -count=1 ./...`: bestanden, einschließlich direkter und
+  ausgehender 31-s-Inferenz, 8-MiB-Bild plus langem Kontext, JSON-Schema mit
+  `anyOf`, vier gleichzeitig laufender Anfragen, Überlast-/Retry-After-Weitergabe,
+  Timeout während des Antwortkörpers und Konfigurationsmigration ohne Überschreiben.
+- `go vet ./...`: bestanden.
+- Builds für Linux amd64, Windows amd64 und macOS arm64: bestanden.
+  In dieser Sandbox war `-buildvcs=false` nötig, weil Go beim VCS-Stamping das
+  übergeordnete bereitgestellte `/workspace/.git` auswählte. Die Build-Ausgaben
+  sind Testartefakte; Releases weiterhin mit dokumentiertem Commit bauen.
+- `node scripts/dashboard_stream_test.cjs`: 12 Fälle bestanden.
+- `node --check internal/webui/assets/agent.js` und Python-Syntaxprüfung: bestanden.
+- Gebautes Gateway über HTTPS mit temporärem gültigem Testzertifikat und einem
+  synthetischen HTTP-Backend: `scripts/prozesslog_smoke.py` besteht alle zehn
+  Prüfungen (Chat, Thinking, JSON-Objekt, Schema, PNG, langer Text, vier parallele
+  Aufrufe). Kein echtes Modell verwendet und keine Kundendaten verarbeitet.
+
+Nicht nachgewiesen: echte MoE-/Vision-Qualität, konkrete llama.cpp-Flagunterstützung,
+32k Token je Slot auf Zielhardware, vier große Kontexte unter GPU-Last,
+Antworten nahe der 300-s-Grenze, externer Proxy, native Windows-/macOS-Bedienung,
+Prozesslog-Import/Chat/Navigator/Last sowie AVV und Speicherung externer Komponenten.
+Die Anleitung und Freigabekriterien stehen in `PROZESSLOG-GATEWAY.md`.
