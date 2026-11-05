@@ -13,6 +13,16 @@ import (
 	"time"
 )
 
+// InferenceTimeout is the default generation budget. Connection and health checks
+// keep their shorter deadlines; inference transports use the request context.
+const (
+	DefaultTimeoutSeconds = 300
+	MaxRequestBytes       = 16 << 20
+	DefaultOutputTokens   = 8192
+	UploadTimeout         = 60 * time.Second
+	ProxyTimeout          = 330 * time.Second
+)
+
 var idPattern = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._:-]{0,127}$`)
 
 func ValidID(s string) bool { return idPattern.MatchString(s) }
@@ -70,13 +80,13 @@ func Load(path string) (Config, error) {
 		c.Database = "data/gateway.db"
 	}
 	if c.TimeoutSeconds == 0 {
-		c.TimeoutSeconds = 180
+		c.TimeoutSeconds = DefaultTimeoutSeconds
 	}
 	if c.MaxBodyBytes == 0 {
-		c.MaxBodyBytes = 1 << 20
+		c.MaxBodyBytes = MaxRequestBytes
 	}
 	if c.MaxOutputTokens == 0 {
-		c.MaxOutputTokens = 2048
+		c.MaxOutputTokens = DefaultOutputTokens
 	}
 	return c, c.Validate()
 }

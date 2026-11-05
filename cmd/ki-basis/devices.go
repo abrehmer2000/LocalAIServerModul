@@ -117,7 +117,9 @@ func agentCommand(args []string) error {
 	engine := flags.String("engine", "http://127.0.0.1:8081", "local engine origin")
 	binary := flags.String("engine-binary", "", "optional llama-server executable to supervise")
 	model := flags.String("model-file", "", "local GGUF model path")
-	contextSize := flags.Int("context-size", 4096, "engine context size")
+	contextSize := flags.Int("context-size", 0, "total engine context (default: 32768 per parallel slot)")
+	projector := flags.String("mmproj", "", "optional absolute vision projector path")
+	projectorHash := flags.String("mmproj-sha256", "", "vision projector SHA-256")
 	tokenStdin := flags.Bool("token-stdin", false, "read one-time join token from stdin")
 	if err := flags.Parse(args[1:]); err != nil {
 		return err
@@ -148,6 +150,10 @@ func agentCommand(args []string) error {
 		return err
 	}
 	defer runner.Close()
+	runner.Runtime = agent.EngineOptions{Projector: *projector, ProjectorSHA256: *projectorHash}
+	if err := runner.Runtime.Validate(); err != nil {
+		return err
+	}
 	stateInfo, err := agent.Load(*state)
 	if err != nil {
 		return err
@@ -159,7 +165,7 @@ func agentCommand(args []string) error {
 	if err != nil {
 		return err
 	}
-	server := &http.Server{Addr: *listen, Handler: runner.Handler(), TLSConfig: tlsConfig, ReadHeaderTimeout: 10 * time.Second, ReadTimeout: 30 * time.Second, IdleTimeout: 30 * time.Second, MaxHeaderBytes: 16 << 10}
+	server := &http.Server{Addr: *listen, Handler: runner.Handler(), TLSConfig: tlsConfig, ReadHeaderTimeout: 10 * time.Second, ReadTimeout: config.UploadTimeout, IdleTimeout: 30 * time.Second, MaxHeaderBytes: 16 << 10}
 	runCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	engineDone := make(chan struct{})

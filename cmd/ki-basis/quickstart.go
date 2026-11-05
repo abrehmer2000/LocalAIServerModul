@@ -98,7 +98,7 @@ func localConfiguration(dir string, port int) (config.Config, string, error) {
 		}
 	}
 	h := sha256.Sum256([]byte(access.Key))
-	c = config.Config{Listen: net.JoinHostPort("127.0.0.1", fmt.Sprint(port)), Database: filepath.Join(absolute, "gateway.db"), TLSCert: filepath.Join(pkiDir, "gateway.crt"), TLSKey: filepath.Join(pkiDir, "gateway.key"), ControlCACert: filepath.Join(pkiDir, "ca.crt"), ControlCAKey: filepath.Join(pkiDir, "ca.key"), Keys: []config.Key{{ID: "local-preview", Admin: true, SHA256: hex.EncodeToString(h[:])}}, TimeoutSeconds: 180, MaxBodyBytes: 1 << 20, MaxOutputTokens: 2048, Nodes: []config.Node{}}
+	c = config.Config{Listen: net.JoinHostPort("127.0.0.1", fmt.Sprint(port)), Database: filepath.Join(absolute, "gateway.db"), TLSCert: filepath.Join(pkiDir, "gateway.crt"), TLSKey: filepath.Join(pkiDir, "gateway.key"), ControlCACert: filepath.Join(pkiDir, "ca.crt"), ControlCAKey: filepath.Join(pkiDir, "ca.key"), Keys: []config.Key{{ID: "local-preview", Admin: true, SHA256: hex.EncodeToString(h[:])}}, TimeoutSeconds: config.DefaultTimeoutSeconds, MaxBodyBytes: config.MaxRequestBytes, MaxOutputTokens: config.DefaultOutputTokens, Nodes: []config.Node{}}
 	if err = c.Validate(); err != nil {
 		return c, "", err
 	}
@@ -146,12 +146,12 @@ func quickstartCommand(args []string) error {
 	mux.Handle("/internal/", controller.Handler())
 	mux.Handle("/admin/", g.Admin(controller.AdminHandler()))
 	mux.Handle("/", g.Handler())
-	backend := &http.Server{Handler: mux, TLSConfig: controller.TLSConfig(), ReadHeaderTimeout: 10 * time.Second, ReadTimeout: 30 * time.Second, IdleTimeout: 30 * time.Second, MaxHeaderBytes: 16 << 10}
+	backend := &http.Server{Handler: mux, TLSConfig: controller.TLSConfig(), ReadHeaderTimeout: 10 * time.Second, ReadTimeout: config.UploadTimeout, IdleTimeout: 30 * time.Second, MaxHeaderBytes: 16 << 10}
 	preview, err := browserHandler("https://"+c.Listen, c.ControlCACert, true)
 	if err != nil {
 		return err
 	}
-	frontend := &http.Server{Handler: preview, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, WriteTimeout: 185 * time.Second, IdleTimeout: 30 * time.Second}
+	frontend := &http.Server{Handler: preview, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: config.UploadTimeout, WriteTimeout: config.ProxyTimeout, IdleTimeout: 30 * time.Second}
 	backendListener, err := net.Listen("tcp", c.Listen)
 	if err != nil {
 		return err

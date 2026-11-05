@@ -26,10 +26,11 @@ import (
 )
 
 type agentSettings struct {
-	ExistingModel string `json:"existing_model,omitempty"`
-	Engine        string `json:"engine"`
-	Binary        string `json:"binary"`
-	Models        string `json:"models"`
+	Runtime       agent.EngineOptions `json:"runtime,omitempty"`
+	ExistingModel string              `json:"existing_model,omitempty"`
+	Engine        string              `json:"engine"`
+	Binary        string              `json:"binary"`
+	Models        string              `json:"models"`
 }
 type localAgent struct {
 	tunnel   managedTunnel
@@ -62,6 +63,7 @@ func (a *localAgent) start() error {
 	}
 	r.Manager = agent.NewModelManager(a.settings.Models, a.settings.Binary, a.settings.Engine, s.Identity.Node.UpstreamModel, s.Identity.Node.Capacity)
 	r.Manager.ExistingModel = a.settings.ExistingModel
+	r.Manager.Runtime = a.settings.Runtime
 	ctx, cancel := context.WithCancel(a.ctx)
 	a.cancel = cancel
 	a.runner = r
@@ -303,6 +305,10 @@ func agentUICommand(args []string) error {
 				return
 			}
 		}
+		if e = in.Settings.Runtime.Validate(); e != nil {
+			writeLocalJSON(w, 400, map[string]string{"error": "invalid_runtime_options"})
+			return
+		}
 		if e = validateExistingModel(in.Settings.ExistingModel); e != nil {
 			writeLocalJSON(w, 400, map[string]string{"error": "existing_model_not_found"})
 			return
@@ -342,7 +348,7 @@ func agentUICommand(args []string) error {
 		var next agentSettings
 		decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 16<<10))
 		decoder.DisallowUnknownFields()
-		if decoder.Decode(&next) != nil || decoder.Decode(new(any)) != io.EOF || agent.ValidateEngineURL(next.Engine) != nil || !filepath.IsAbs(next.Models) {
+		if decoder.Decode(&next) != nil || decoder.Decode(new(any)) != io.EOF || agent.ValidateEngineURL(next.Engine) != nil || next.Runtime.Validate() != nil || !filepath.IsAbs(next.Models) {
 			writeLocalJSON(w, 400, map[string]string{"error": "invalid_settings"})
 			return
 		}

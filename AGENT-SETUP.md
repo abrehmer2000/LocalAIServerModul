@@ -109,7 +109,9 @@ Die vorhandene Engine wird beim Agent-Stopp nicht beendet.
 
 ## Netz und Bereitschaft
 
-- Gateway und Agent benötigen direkten Netzwerkzugriff aufeinander. Noch kein ausgehender Tunnel/NAT-Durchstich.
+- Dieser direkte CLI-Modus benötigt Netzwerkzugriff auf den Agenten. Der empfohlene
+  Dashboard-Modus verwendet bereits ausgehende mTLS-Verbindungen; siehe
+  [Zwei-Server-Test](ZWEI-SERVER-TEST.md) und [Dashboard](DASHBOARD-SETUP.md).
 - Agent-Port nur für das Gateway freigeben. Die Engine selbst bleibt auf einer Loopback-IP.
 - Gegenseitige TLS-Authentifizierung ist verpflichtend, auch beim lokalen Agent-Test.
 - Nur die Gateway-Geräteidentität darf die Agent-API ansprechen; andere gültige Gerätezertifikate reichen nicht aus.

@@ -37,6 +37,10 @@ func run() error {
 	}
 	command := os.Args[1]
 	switch command {
+	case "init-central":
+		return centralInitCommand(os.Args[2:])
+	case "prozesslog-profile":
+		return prozesslogProfileCommand(os.Args[2:])
 	case "restore":
 		return restoreCommand(os.Args[2:])
 	case "agent-bootstrap":
@@ -46,7 +50,7 @@ func run() error {
 	case "agent-ui":
 		return agentUICommand(os.Args[2:])
 	case "--help", "-h", "help":
-		fmt.Fprintln(os.Stdout, "KI-Basis: serve | quickstart | agent-ui | agent-bootstrap | restore | agent join|run | keygen | audit-verify | audit-export | init-tls | join-token | node-list | node-revoke | admin-key")
+		fmt.Fprintln(os.Stdout, "KI-Basis: init-central | prozesslog-profile | serve | quickstart | agent-ui | agent-bootstrap | restore | agent join|run | keygen | audit-verify | audit-export | init-tls | join-token | node-list | node-revoke | admin-key")
 		return nil
 	case "quickstart":
 		return quickstartCommand(os.Args[2:])
@@ -113,7 +117,7 @@ func run() error {
 	if err = store.Append(context.Background(), audit.Event{Type: "gateway.started", Outcome: "configuration_loaded"}); err != nil {
 		return err
 	}
-	server := &http.Server{Addr: cfg.Listen, Handler: g.Handler(), ReadHeaderTimeout: 10 * time.Second, ReadTimeout: 30 * time.Second, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 16 << 10, TLSConfig: &tls.Config{MinVersion: tls.VersionTLS12}}
+	server := &http.Server{Addr: cfg.Listen, Handler: g.Handler(), ReadHeaderTimeout: 10 * time.Second, ReadTimeout: config.UploadTimeout, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 16 << 10, TLSConfig: &tls.Config{MinVersion: tls.VersionTLS12}}
 	var controller *control.Service
 	if cfg.ControlCACert != "" {
 		controller, err = control.New(cfg, store, g.Pool())

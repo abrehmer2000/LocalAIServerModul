@@ -376,7 +376,7 @@ func (s *Service) taskResult(w http.ResponseWriter, r *http.Request) {
 		deny(w, 400)
 		return
 	}
-	if err = s.broker.Deliver(r.Context(), n.ID, r.PathValue("id"), status, r.Header.Get("Content-Type"), r.Body); err != nil {
+	if err = s.broker.Deliver(r.Context(), n.ID, r.PathValue("id"), status, r.Header.Get("Content-Type"), r.Body, r.Header.Get("X-Inference-Retry-After")); err != nil {
 		w.WriteHeader(410)
 		return
 	}

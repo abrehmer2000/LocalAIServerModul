@@ -1,11 +1,13 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"crypto/tls"
 	"crypto/x509"
 	"errors"
 	"flag"
+	"io"
 	"localaiserver/internal/config"
 	"localaiserver/internal/webui"
 	"net"
@@ -49,7 +51,7 @@ func browserHandler(backend string, caFile string, management bool) (http.Handle
 		pr.Out.Header.Del("X-Forwarded-For")
 		pr.Out.Header.Del("X-Forwarded-Host")
 		pr.Out.Header.Del("X-Forwarded-Proto")
-	}, Transport: &http.Transport{Proxy: nil, TLSClientConfig: tc, DialContext: (&net.Dialer{Timeout: 3 * time.Second}).DialContext, ResponseHeaderTimeout: 180 * time.Second}, ModifyResponse: func(resp *http.Response) error {
+	}, Transport: &http.Transport{Proxy: nil, TLSClientConfig: tc, DialContext: (&net.Dialer{Timeout: 3 * time.Second}).DialContext, ResponseHeaderTimeout: config.ProxyTimeout}, ModifyResponse: func(resp *http.Response) error {
 		resp.Header.Set("Cache-Control", "no-store")
 		resp.Header.Del("Set-Cookie")
 		if resp.StatusCode >= 300 && resp.StatusCode < 400 {
@@ -68,11 +70,28 @@ func browserHandler(backend string, caFile string, management bool) (http.Handle
 				http.Error(w, "query not allowed", 400)
 				return
 			}
-			ctx, cancel := context.WithTimeout(r.Context(), 180*time.Second)
+			// Bound the upload separately; generation gets its full budget only after
+			// the bounded body has arrived. Never persist the buffered payload.
+			limit := int64(1 << 20)
+			if r.URL.Path == "/v1/chat/completions" {
+				limit = config.MaxRequestBytes
+			}
+			body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, limit))
+			r.Body.Close()
+			if err != nil {
+				var tooLarge *http.MaxBytesError
+				if errors.As(err, &tooLarge) {
+					http.Error(w, "request too large", 413)
+				} else {
+					http.Error(w, "invalid request body", 400)
+				}
+				return
+			}
+			r.Body = io.NopCloser(bytes.NewReader(body))
+			ctx, cancel := context.WithTimeout(r.Context(), config.ProxyTimeout)
 			defer cancel()
-			_ = http.NewResponseController(w).SetWriteDeadline(time.Now().Add(185 * time.Second))
+			_ = http.NewResponseController(w).SetWriteDeadline(time.Now().Add(config.ProxyTimeout))
 			r = r.WithContext(ctx)
-			r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 			proxy.ServeHTTP(w, r)
 			return
 		}
@@ -110,7 +129,7 @@ func previewCommand(args []string) error {
 	if err != nil {
 		return err
 	}
-	server := &http.Server{Addr: *listen, Handler: handler, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, WriteTimeout: 20 * time.Second, IdleTimeout: 30 * time.Second, MaxHeaderBytes: 16 << 10}
+	server := &http.Server{Addr: *listen, Handler: handler, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: config.UploadTimeout, WriteTimeout: 20 * time.Second, IdleTimeout: 30 * time.Second, MaxHeaderBytes: 16 << 10}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	result := make(chan error, 1)

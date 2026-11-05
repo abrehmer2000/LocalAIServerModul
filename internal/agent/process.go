@@ -9,7 +9,6 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
-	"strconv"
 	"time"
 )
 
@@ -36,11 +35,15 @@ func (r *Runner) RunEngine(ctx context.Context, binary, model string, contextSiz
 	}
 	u, _ := url.Parse(r.upstream.String())
 	port := u.Port()
-	if port == "" || contextSize < 128 || contextSize > 131072 {
+	if port == "" {
 		return errors.New("engine port and valid context size required")
 	}
+	runtimeArgs, err := r.Runtime.arguments(ctx, n.Capacity, contextSize)
+	if err != nil {
+		return err
+	}
 	for attempt := 0; attempt < 5; attempt++ {
-		cmd := exec.CommandContext(ctx, binary, "--model", model, "--alias", n.UpstreamModel, "--host", u.Hostname(), "--port", port, "--ctx-size", strconv.Itoa(contextSize), "--parallel", strconv.Itoa(n.Capacity))
+		cmd := exec.CommandContext(ctx, binary, append([]string{"--model", model, "--alias", n.UpstreamModel, "--host", u.Hostname(), "--port", port}, runtimeArgs...)...)
 		cmd.Env = RuntimeEnvironment(binary)
 		configureProcess(cmd)
 		cmd.Cancel = func() error { return killProcessTree(cmd) }

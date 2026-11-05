@@ -318,6 +318,10 @@
                 Modell-Prüfsumme geprüft und ohne zweite Kopie verwendet.
               </p>
               <label for="models">Modellverzeichnis</label><input id="models" />
+              <label for="context-per-request">Kontext-Token je gleichzeitiger Anfrage</label><input id="context-per-request" type="number" min="128" max="131072" value="32768" />
+              <p>Mehr Kontext und gleichzeitige Anfragen benötigen mehr Arbeitsspeicher. Die passende Hardware muss im Modelltest bestätigt werden.</p>
+              <label for="projector">Vision-Projektor: vollständiger Dateipfad (optional)</label><input id="projector" />
+              <label for="projector-sha256">SHA-256 des Vision-Projektors</label><input id="projector-sha256" />
             </details>
           </section>
           <section data-agent-step="2" hidden>

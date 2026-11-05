@@ -109,16 +109,19 @@ func (r *Runner) pollOnce(ctx context.Context) error {
 	output, err := local.Do(q)
 	status := 502
 	contentType := "application/json"
+	retryAfter := ""
 	var body io.ReadCloser = io.NopCloser(bytes.NewBufferString(`{"error":"engine_unavailable"}`))
 	if err == nil {
 		status = output.StatusCode
 		contentType = output.Header.Get("Content-Type")
+		retryAfter = output.Header.Get("Retry-After")
 		body = output.Body
 	}
 	defer body.Close()
 	upload, _ := http.NewRequestWithContext(workCtx, "POST", base+"/internal/tasks/"+task.ID+"/result", body)
 	upload.Header.Set("X-Inference-Status", strconv.Itoa(status))
 	upload.Header.Set("Content-Type", contentType)
+	upload.Header.Set("X-Inference-Retry-After", retryAfter)
 	result, err := c.Do(upload)
 	if err != nil {
 		return errors.New("outbound_result_interrupted")

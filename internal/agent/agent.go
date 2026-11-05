@@ -157,6 +157,7 @@ func validate(s State) (tls.Certificate, error) {
 }
 
 type Runner struct {
+	Runtime   EngineOptions
 	Manager   *ModelManager
 	mu        sync.RWMutex
 	state     State
@@ -179,7 +180,7 @@ func New(path, engineURL string) (*Runner, error) {
 		return nil, err
 	}
 	u, _ := url.Parse(engineURL)
-	return &Runner{state: s, pair: pair, path: path, upstream: u, transport: &http.Transport{Proxy: nil, DialContext: (&net.Dialer{Timeout: 3 * time.Second}).DialContext, ResponseHeaderTimeout: 30 * time.Second, MaxConnsPerHost: s.Identity.Node.Capacity + 2, IdleConnTimeout: 30 * time.Second}}, nil
+	return &Runner{state: s, pair: pair, path: path, upstream: u, transport: &http.Transport{Proxy: nil, DialContext: (&net.Dialer{Timeout: 3 * time.Second}).DialContext, MaxConnsPerHost: s.Identity.Node.Capacity + 2, IdleConnTimeout: 30 * time.Second}}, nil
 }
 func (r *Runner) Close() {
 	if r.Manager != nil {
