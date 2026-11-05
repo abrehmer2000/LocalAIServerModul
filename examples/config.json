@@ -1,9 +1,9 @@
 {
   "listen": "127.0.0.1:8080",
   "database": "data/gateway.db",
-  "timeout_seconds": 180,
-  "max_body_bytes": 1048576,
-  "max_output_tokens": 2048,
+  "timeout_seconds": 300,
+  "max_body_bytes": 16777216,
+  "max_output_tokens": 8192,
   "keys": [
     {
       "id": "first-app",

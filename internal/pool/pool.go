@@ -48,7 +48,7 @@ func New(configs []config.Node) (*Pool, error) {
 			}
 			tlsConfig.RootCAs = roots
 		}
-		transport := &http.Transport{Proxy: nil, DialContext: (&net.Dialer{Timeout: 5 * time.Second, KeepAlive: 30 * time.Second}).DialContext, TLSClientConfig: tlsConfig, TLSHandshakeTimeout: 5 * time.Second, ResponseHeaderTimeout: 30 * time.Second, MaxIdleConnsPerHost: c.Capacity, MaxConnsPerHost: c.Capacity, IdleConnTimeout: 60 * time.Second, DisableCompression: true}
+		transport := &http.Transport{Proxy: nil, DialContext: (&net.Dialer{Timeout: 5 * time.Second, KeepAlive: 30 * time.Second}).DialContext, TLSClientConfig: tlsConfig, TLSHandshakeTimeout: 5 * time.Second, MaxIdleConnsPerHost: c.Capacity, MaxConnsPerHost: c.Capacity, IdleConnTimeout: 60 * time.Second, DisableCompression: true}
 		p.nodes = append(p.nodes, &Node{Config: c, Client: &http.Client{Transport: transport, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}})
 	}
 	return p, nil

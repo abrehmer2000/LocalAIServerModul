@@ -109,3 +109,34 @@ func TestManagementBrowserForwardsOnlyExplicitAuthenticatedSurface(t *testing.T)
 		t.Fatal("internal plane exposed")
 	}
 }
+
+func TestManagementProxyAcceptsImageBodiesAndRejectsOversize(t *testing.T) {
+	var size atomic.Int64
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		n, err := io.Copy(io.Discard, r.Body)
+		if err != nil {
+			t.Error(err)
+		}
+		size.Store(n)
+		io.WriteString(w, `{}`)
+	}))
+	defer backend.Close()
+	handler, err := browserHandler(backend.URL, "", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tt := range []struct {
+		bytes  int
+		status int
+	}{{12 << 20, 200}, {(16 << 20) + 1, 413}} {
+		body := strings.Repeat("x", tt.bytes)
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, httptest.NewRequest("POST", "/v1/chat/completions", strings.NewReader(body)))
+		if response.Code != tt.status {
+			t.Fatal(response.Code)
+		}
+		if tt.status == 200 && size.Load() != int64(tt.bytes) {
+			t.Fatal("body truncated")
+		}
+	}
+}

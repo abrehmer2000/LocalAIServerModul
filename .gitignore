@@ -9,3 +9,5 @@ config.local.json
 
 __pycache__/
 *.pyc
+
+config.*.local.json
