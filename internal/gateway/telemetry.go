@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"localaiserver/internal/event"
+	"localaiserver/internal/pool"
 	"net/http"
 	"sync"
 	"time"
@@ -49,7 +50,11 @@ func (g *Gateway) metricHandler(w http.ResponseWriter, r *http.Request) {
 	hist := g.metrics.Durations
 	prompt, completion := g.metrics.Prompt, g.metrics.Completion
 	g.metrics.Unlock()
-	writeJSON(w, 200, map[string]any{"requests": counts, "duration_bucket_upper_ms": durationBounds, "duration_bucket_counts": hist, "prompt_tokens": prompt, "completion_tokens": completion, "nodes": g.pool.Snapshot(), "queue_length": g.pool.QueueLength("")})
+	profiles := []pool.Capabilities{}
+	for _, model := range g.pool.Models() {
+		profiles = append(profiles, g.pool.Capabilities(model))
+	}
+	writeJSON(w, 200, map[string]any{"models": profiles, "requests": counts, "duration_bucket_upper_ms": durationBounds, "duration_bucket_counts": hist, "prompt_tokens": prompt, "completion_tokens": completion, "nodes": g.pool.Snapshot(), "queue_length": g.pool.QueueLength("")})
 }
 func (g *Gateway) health(w http.ResponseWriter, r *http.Request) {
 	profiles := []any{}
@@ -73,6 +78,13 @@ func (g *Gateway) capabilities(w http.ResponseWriter, r *http.Request) {
 	}
 	if !g.allowed(e.KeyID, model) {
 		g.reject(w, e, 403, "forbidden", "Model access denied")
+		return
+	}
+	e.Type = "capabilities.viewed"
+	e.Model = model
+	e.Status = 200
+	if g.append(e) != nil {
+		apiError(w, 503, "model_unavailable", "Audit unavailable")
 		return
 	}
 	writeJSON(w, 200, map[string]any{"capabilities": g.pool.Capabilities(model), "import_leases": true, "generation_timeout_seconds": g.cfg.TimeoutSeconds, "queue_wait_seconds": int(g.cfg.QueueWait() / time.Second), "queue_capacity": g.cfg.QueueSize(), "max_output_tokens": g.pool.Capabilities(model).ContextPerSlot - 1, "max_explicit_output_tokens": min(g.cfg.MaxOutputTokens, g.pool.Capabilities(model).ContextPerSlot-1), "implicit_output_limit": false})
