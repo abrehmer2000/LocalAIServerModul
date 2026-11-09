@@ -250,3 +250,15 @@ diesen Nachweis nicht. Dieses Profil ist deshalb für N23 noch nicht abgenommen.
 Auch die funktionierende echte Bilderkennung und die Slotfreigabe nach Abbruch
 müssen auf der Zielengine gemessen werden; synthetische HTTP-Tests belegen nur
 den Transport und die Gatewaylogik.
+
+
+### Keine Sperrfrist nach einzelnen Anfragefehlern
+
+Ein abgeschlossener oder abgebrochener Gatewayaufruf gibt seine Reservierung
+sofort frei und weckt die Warteschlange ereignisgesteuert. Auch ein technischer
+Anfragefehler sperrt den Knoten nicht mehr pauschal fuer fuenf Sekunden.
+Tatsaechliche Nichtverfuegbarkeit wird getrennt durch Health-/Agentmeldungen
+geprueft. Die Grenze von maximal fuenf Sekunden bei der Abbruchabnahme ist keine
+Wartezeit; sie misst, wie schnell die echte Engine ihre Arbeit nach einem
+Abbruch beendet und ihren internen Platz freigibt. Die Engine darf einen noch
+laufenden Auftrag nicht allein aufgrund des Clientabbruchs als beendet melden.

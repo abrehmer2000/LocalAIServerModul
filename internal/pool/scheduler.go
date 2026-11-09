@@ -84,9 +84,6 @@ func (p *Pool) Availability(model string) error {
 			}
 			continue
 		}
-		if time.Now().Before(n.failedUntil) {
-			continue
-		}
 		return nil
 	}
 	if loading {
@@ -213,7 +210,7 @@ func (p *Pool) Capabilities(model string) Capabilities {
 		if n.dynamic && !allowed[n] {
 			continue
 		}
-		if (!n.dynamic || allowed[n]) && (!(n.dynamic || n.Config.EngineProtocol == "llama.cpp") || n.ready && time.Now().Before(n.leaseUntil)) && !time.Now().Before(n.failedUntil) {
+		if (!n.dynamic || allowed[n]) && (!(n.dynamic || n.Config.EngineProtocol == "llama.cpp") || n.ready && time.Now().Before(n.leaseUntil)) {
 			c.Free += n.Config.Capacity - n.active
 			c.State = "ready"
 		} else if n.lifecycle == "loading" && c.State != "ready" {
@@ -242,9 +239,6 @@ func (p *Pool) RetryAfter(model string) int {
 		remaining := n.meanDuration - time.Since(n.oldest)
 		if n.lifecycle == "loading" && remaining < 5*time.Second {
 			remaining = 5 * time.Second
-		}
-		if n.failedUntil.After(time.Now()) {
-			remaining = time.Until(n.failedUntil)
 		}
 		if remaining > delay {
 			delay = remaining

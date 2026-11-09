@@ -23,7 +23,6 @@ type Node struct {
 	Config             config.Node
 	Client             *http.Client
 	active             int
-	failedUntil        time.Time
 	meanDuration       time.Duration
 	oldest             time.Time
 	lifecycle          string
@@ -115,7 +114,7 @@ func (p *Pool) acquire(model, id string) (*Node, func(bool)) {
 	for i := 0; i < len(p.nodes); i++ {
 		j := (p.cursor + i) % len(p.nodes)
 		n := p.nodes[j]
-		if (id == "" && n.Config.Model != model) || (id != "" && n.Config.ID != id) || ((n.dynamic || n.Config.EngineProtocol == "llama.cpp") && (!n.ready || !time.Now().Before(n.leaseUntil))) || (n.dynamic && !allowed[n]) || n.active >= n.Config.Capacity || time.Now().Before(n.failedUntil) {
+		if (id == "" && n.Config.Model != model) || (id != "" && n.Config.ID != id) || ((n.dynamic || n.Config.EngineProtocol == "llama.cpp") && (!n.ready || !time.Now().Before(n.leaseUntil))) || (n.dynamic && !allowed[n]) || n.active >= n.Config.Capacity {
 			continue
 		}
 		if best < 0 || n.active*p.nodes[best].Config.Capacity < p.nodes[best].active*n.Config.Capacity {
@@ -145,11 +144,11 @@ func (p *Pool) acquire(model, id string) (*Node, func(bool)) {
 					n.meanDuration = (3*n.meanDuration + d) / 4
 				}
 			}
+			// Request failure does not establish node failure. Readiness comes
+			// from health/agent reports; every completed reservation wakes the
+			// queue immediately, including failures and cancellations.
 			n.active--
 			p.notifyLocked()
-			if failed {
-				n.failedUntil = time.Now().Add(5 * time.Second)
-			}
 		})
 	}
 }
@@ -239,7 +238,7 @@ func (p *Pool) Snapshot() []Status {
 		state := "configured"
 		if n.dynamic || n.Config.EngineProtocol == "llama.cpp" {
 			state = "unavailable"
-			if n.ready && time.Now().Before(n.leaseUntil) && !time.Now().Before(n.failedUntil) {
+			if n.ready && time.Now().Before(n.leaseUntil) {
 				state = "ready"
 			}
 		}

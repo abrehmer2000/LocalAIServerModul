@@ -102,9 +102,6 @@ func (p *Pool) probe(ctx context.Context, n *Node) {
 	n.ready = ready
 	n.lifecycle = state
 	n.leaseUntil = time.Now().Add(time.Second)
-	if ready {
-		n.failedUntil = time.Time{}
-	}
 	p.notifyLocked()
 	p.mu.Unlock()
 }

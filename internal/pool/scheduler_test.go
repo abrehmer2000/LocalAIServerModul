@@ -130,3 +130,39 @@ func TestDrainWakesWaitersAndTimeoutDoesNotReserve(t *testing.T) {
 		t.Fatal("abandoned queue entry")
 	}
 }
+
+// A failed request is not evidence that all slots on its host are unavailable.
+// Every release must wake the next waiter without a timed node-wide fence.
+func TestFailedRequestsImmediatelyHandSlotsToConcurrentWaiters(t *testing.T) {
+	p := testPool(t)
+	_, release := p.Acquire("m")
+	const count = 32
+	results := make(chan error, count)
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	for i := 0; i < count; i++ {
+		go func() {
+			_, done, err := p.WaitAcquire(ctx, "m", false, count, 3*time.Second)
+			if err == nil {
+				done(true)
+			}
+			results <- err
+		}()
+	}
+	waitQueue(t, p, count)
+	release(true)
+	for i := 0; i < count; i++ {
+		select {
+		case err := <-results:
+			if err != nil {
+				t.Fatalf("free slot rejected waiter after request failure: %v", err)
+			}
+		case <-ctx.Done():
+			t.Fatal("released slot was not handed on promptly")
+		}
+	}
+	c := p.Capabilities("m")
+	if c.State != "ready" || c.Active != 0 || c.Free != 1 || c.Queue != 0 {
+		t.Fatalf("incorrect occupancy after completed failures: %+v", c)
+	}
+}
