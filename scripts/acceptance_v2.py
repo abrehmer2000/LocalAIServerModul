@@ -47,7 +47,7 @@ class Client:
             response = exc
         with response:
             data = response.read(128 * 1024 * 1024 + 1)
-            return response.code, dict(response.headers), json.loads(data.decode("utf-8")) if data else {}, time.monotonic() - start
+            return response.code, {k.lower(): v for k, v in response.headers.items()}, json.loads(data.decode("utf-8")) if data else {}, time.monotonic() - start
 
     def payload(self, prompt="Antworte kurz mit OK.", **options):
         return {"model": self.model, "messages": [{"role": "user", "content": prompt}], **options}
@@ -85,7 +85,7 @@ def run(client):
     check(["F-07"], "models", lambda: client.call(path="/models"), lambda r: r[0] == 200 and client.model in {m["id"] for m in r[2]["data"]})
     check(["F-10"], "five_output_tokens", lambda: client.call(client.payload("Zähle die Zahlen von 1 bis 200 auf.", max_tokens=5, chat_template_kwargs={"enable_thinking": False})), lambda r: complete(r) and r[2]["choices"][0]["finish_reason"] == "length")
     check(["F-41", "F-22"], "capabilities", lambda: client.call(path="/models/" + urllib.parse.quote(client.model, safe="") + "/capabilities"), lambda r: r[0] == 200 and r[2]["capabilities"]["context_per_slot"] >= 32768 and isinstance(r[2]["capabilities"]["vision"], bool))
-    check(["F-42"], "request_id", lambda: client.call(payload), lambda r: r[1].get("X-Request-ID") == "v2-acceptance")
+    check(["F-42"], "request_id", lambda: client.call(payload), lambda r: r[1].get("x-request-id") == "v2-acceptance")
     for i in range(50):
         check(["F-32"], "sequential_" + str(i + 1), lambda: client.call(payload), complete)
     with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
