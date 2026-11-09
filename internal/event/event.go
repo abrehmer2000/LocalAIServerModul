@@ -4,6 +4,10 @@ package event
 import "context"
 
 type Event struct {
+	EngineSHA256     string `json:"engine_sha256,omitempty"`
+	TemplateSHA256   string `json:"template_sha256,omitempty"`
+	ProjectorSHA256  string `json:"projector_sha256,omitempty"`
+	Validation       string `json:"validation,omitempty"`
 	Actor            string `json:"actor,omitempty"`
 	RequestID        string `json:"request_id,omitempty"`
 	Type             string `json:"type"`

@@ -9,15 +9,14 @@ import (
 	"flag"
 	"io"
 	"localaiserver/internal/config"
+	"localaiserver/internal/gateway"
 	"localaiserver/internal/webui"
 	"net"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
 	"os"
-	"os/signal"
 	"strings"
-	"syscall"
 	"time"
 )
 
@@ -26,7 +25,16 @@ func previewHandler(backend string, caFile string) (http.Handler, error) {
 	return browserHandler(backend, caFile, false)
 }
 
-func browserHandler(backend string, caFile string, management bool) (http.Handler, error) {
+func browserHandler(backend string, caFile string, management bool, profiles ...config.Config) (http.Handler, error) {
+	budget := config.ProxyTimeout
+	bodyLimit := int64(config.MaxRequestBytes)
+	concurrent := 64
+	if len(profiles) > 0 {
+		budget = profiles[0].ProxyBudget()
+		bodyLimit = profiles[0].MaxBodyBytes
+		concurrent = profiles[0].ConcurrentLimit()
+	}
+	ingress := make(chan struct{}, concurrent)
 	target, err := url.Parse(backend)
 	if err != nil || !config.IsLoopback(target.Hostname()) || (target.Scheme != "http" && target.Scheme != "https") || target.Path != "" || target.RawQuery != "" || target.User != nil || target.Fragment != "" {
 		return nil, errors.New("preview backend must be a loopback HTTP(S) origin")
@@ -51,18 +59,27 @@ func browserHandler(backend string, caFile string, management bool) (http.Handle
 		pr.Out.Header.Del("X-Forwarded-For")
 		pr.Out.Header.Del("X-Forwarded-Host")
 		pr.Out.Header.Del("X-Forwarded-Proto")
-	}, Transport: &http.Transport{Proxy: nil, TLSClientConfig: tc, DialContext: (&net.Dialer{Timeout: 3 * time.Second}).DialContext, ResponseHeaderTimeout: config.ProxyTimeout}, ModifyResponse: func(resp *http.Response) error {
+	}, Transport: &http.Transport{Proxy: nil, TLSClientConfig: tc, DialContext: (&net.Dialer{Timeout: 3 * time.Second}).DialContext, ResponseHeaderTimeout: budget}, ModifyResponse: func(resp *http.Response) error {
 		resp.Header.Set("Cache-Control", "no-store")
 		resp.Header.Del("Set-Cookie")
 		if resp.StatusCode >= 300 && resp.StatusCode < 400 {
 			return errors.New("preview backend redirects forbidden")
 		}
 		return nil
-	}, ErrorHandler: func(w http.ResponseWriter, r *http.Request, err error) { http.Error(w, "gateway unavailable", 503) }}
+	}, ErrorHandler: func(w http.ResponseWriter, r *http.Request, err error) {
+		gateway.WriteError(w, 503, "model_unavailable", "Gateway unavailable")
+	}}
 	ui := webui.Handler()
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	return gateway.StrictPaths(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		select {
+		case ingress <- struct{}{}:
+			defer func() { <-ingress }()
+		default:
+			gateway.WriteError(w, 429, "model_busy", "Request concurrency limit reached")
+			return
+		}
 		if management && (strings.HasPrefix(r.URL.Path, "/admin/") || r.URL.Path == "/v1/chat/completions") {
-			if r.Method != "GET" && r.Method != "POST" {
+			if r.Method != "GET" && r.Method != "POST" && r.Method != "PUT" {
 				http.Error(w, "method not allowed", 405)
 				return
 			}
@@ -74,7 +91,7 @@ func browserHandler(backend string, caFile string, management bool) (http.Handle
 			// the bounded body has arrived. Never persist the buffered payload.
 			limit := int64(1 << 20)
 			if r.URL.Path == "/v1/chat/completions" {
-				limit = config.MaxRequestBytes
+				limit = bodyLimit
 			}
 			body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, limit))
 			r.Body.Close()
@@ -88,9 +105,9 @@ func browserHandler(backend string, caFile string, management bool) (http.Handle
 				return
 			}
 			r.Body = io.NopCloser(bytes.NewReader(body))
-			ctx, cancel := context.WithTimeout(r.Context(), config.ProxyTimeout)
+			ctx, cancel := context.WithTimeout(r.Context(), budget)
 			defer cancel()
-			_ = http.NewResponseController(w).SetWriteDeadline(time.Now().Add(config.ProxyTimeout))
+			_ = http.NewResponseController(w).SetWriteDeadline(time.Now().Add(budget))
 			r = r.WithContext(ctx)
 			proxy.ServeHTTP(w, r)
 			return
@@ -108,7 +125,7 @@ func browserHandler(backend string, caFile string, management bool) (http.Handle
 			return
 		}
 		ui.ServeHTTP(w, r)
-	}), nil
+	})), nil
 }
 func previewCommand(args []string) error {
 	flags := flag.NewFlagSet("web-preview", flag.ContinueOnError)
@@ -130,7 +147,7 @@ func previewCommand(args []string) error {
 		return err
 	}
 	server := &http.Server{Addr: *listen, Handler: handler, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: config.UploadTimeout, WriteTimeout: 20 * time.Second, IdleTimeout: 30 * time.Second, MaxHeaderBytes: 16 << 10}
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	ctx, stop := terminationContext()
 	defer stop()
 	result := make(chan error, 1)
 	go func() { result <- server.ListenAndServe() }()

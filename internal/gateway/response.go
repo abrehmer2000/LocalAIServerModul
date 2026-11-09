@@ -13,6 +13,8 @@ import (
 	"github.com/santhosh-tekuri/jsonschema/v5"
 )
 
+var errSchemaTooLarge = errors.New("schema exceeds 64 KiB")
+
 type responseFormat struct {
 	Type       string `json:"type"`
 	JSONSchema *struct {
@@ -34,6 +36,9 @@ func (f *responseFormat) prepare() error {
 			return errors.New("unexpected json_schema")
 		}
 	case "json_schema":
+		if f.JSONSchema != nil && len(f.JSONSchema.Schema) > 64<<10 {
+			return errSchemaTooLarge
+		}
 		if f.JSONSchema == nil || f.JSONSchema.Name == "" || len(f.JSONSchema.Name) > 64 || len(f.JSONSchema.Schema) > 64<<10 {
 			return errors.New("invalid json_schema")
 		}
@@ -93,10 +98,12 @@ func validateCompletion(data []byte, f *responseFormat) error {
 
 func upstreamError(status int) (int, string) {
 	switch status {
-	case 429, 503:
-		return status, "model_busy"
+	case 429:
+		return 429, "model_busy"
+	case 503:
+		return 503, "model_unavailable"
 	case 400, 413, 415, 422:
-		return status, "upstream_invalid_request"
+		return status, "invalid_request"
 	default:
 		return 502, "upstream_failure"
 	}

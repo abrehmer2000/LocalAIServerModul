@@ -11,14 +11,23 @@ import (
 // EngineOptions are local operator settings, never commands received from a peer.
 // ContextPerRequest is multiplied by the number of llama.cpp slots.
 type EngineOptions struct {
+	EngineSHA256      string `json:"engine_sha256,omitempty"`
+	Template          string `json:"template,omitempty"`
+	TemplateSHA256    string `json:"template_sha256,omitempty"`
 	ContextPerRequest int    `json:"context_per_request,omitempty"`
 	Projector         string `json:"projector,omitempty"`
 	ProjectorSHA256   string `json:"projector_sha256,omitempty"`
 }
 
 func (o EngineOptions) Validate() error {
-	if o.ContextPerRequest != 0 && (o.ContextPerRequest < 128 || o.ContextPerRequest > 131072) {
+	if o.ContextPerRequest != 0 && (o.ContextPerRequest < 32768 || o.ContextPerRequest > 131072) {
 		return errors.New("invalid context per request")
+	}
+	if o.EngineSHA256 != "" && !regexp.MustCompile(`^[a-f0-9]{64}$`).MatchString(o.EngineSHA256) {
+		return errors.New("invalid engine SHA-256")
+	}
+	if (o.Template == "") != (o.TemplateSHA256 == "") || o.Template != "" && (!filepath.IsAbs(o.Template) || !regexp.MustCompile(`^[a-f0-9]{64}$`).MatchString(o.TemplateSHA256)) {
+		return errors.New("template needs absolute path and SHA-256")
 	}
 	if o.Projector == "" && o.ProjectorSHA256 == "" {
 		return nil
@@ -43,10 +52,17 @@ func (o EngineOptions) arguments(ctx context.Context, capacity, totalContext int
 		}
 		totalContext = perRequest * capacity
 	}
-	if totalContext < 128*capacity || totalContext > 131072*capacity {
+	if totalContext < 32768*capacity || totalContext > 131072*capacity {
 		return nil, errors.New("invalid total context")
 	}
-	args := []string{"--ctx-size", strconv.Itoa(totalContext), "--parallel", strconv.Itoa(capacity), "--jinja", "--reasoning-format", "deepseek", "--cache-ram", "0", "--no-context-shift"}
+	args := []string{"--ctx-size", strconv.Itoa(totalContext), "--parallel", strconv.Itoa(capacity), "--jinja", "--reasoning-format", "deepseek", "--cache-ram", "0", "--no-context-shift", "--log-disable", "--predict", "-1"}
+	if o.Template != "" {
+		hash, err := fileHash(ctx, o.Template)
+		if err != nil || hash != o.TemplateSHA256 {
+			return nil, errors.New("template hash mismatch")
+		}
+		args = append(args, "--chat-template-file", o.Template)
+	}
 	if o.Projector != "" {
 		hash, err := fileHash(ctx, o.Projector)
 		if err != nil || hash != o.ProjectorSHA256 {
@@ -55,4 +71,16 @@ func (o EngineOptions) arguments(ctx context.Context, capacity, totalContext int
 		args = append(args, "--mmproj", o.Projector)
 	}
 	return args, nil
+}
+
+func FileSHA256(ctx context.Context, path string) (string, error) { return fileHash(ctx, path) }
+func (o EngineOptions) VerifyBinary(ctx context.Context, binary string) error {
+	if o.EngineSHA256 == "" {
+		return errors.New("engine_revision_unpinned")
+	}
+	actual, err := fileHash(ctx, binary)
+	if err != nil || actual != o.EngineSHA256 {
+		return errors.New("engine_revision_mismatch")
+	}
+	return nil
 }

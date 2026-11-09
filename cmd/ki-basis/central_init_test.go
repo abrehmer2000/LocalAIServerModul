@@ -31,7 +31,7 @@ func TestCentralInitializationRolesAndCertificate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(loaded.Nodes) != 0 || loaded.TimeoutSeconds != 300 || loaded.MaxBodyBytes != 16<<20 {
+	if len(loaded.Nodes) != 0 || loaded.TimeoutSeconds != 900 || loaded.MaxBodyBytes != 16<<20 {
 		t.Fatal("wrong central profile")
 	}
 	pair, err := tls.LoadX509KeyPair(c.TLSCert, c.TLSKey)

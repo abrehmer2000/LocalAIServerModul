@@ -1,3 +1,6 @@
+> Aktueller V2-Vertrag, Migration und Abnahme: [ANFORDERUNGEN-V2.md](ANFORDERUNGEN-V2.md), [V2-BETRIEB.md](V2-BETRIEB.md).
+> Dieser Branch ist bis zur echten Modell-/Host-/24h-Abnahme ein Testkandidat.
+
 # KI-Basis – lokaler LLM-Zugang
 
 Erste Implementierung eines OpenAI-kompatiblen Gateways für getrennte Kundeninstallationen.
@@ -69,7 +72,7 @@ go build -o bin/ki-basis.exe ./cmd/ki-basis
 2. Engine starten (unter Windows `llama-server.exe`):
 
 ```sh
-llama-server --model /pfad/modell.gguf --alias gemma-4-26b-a4b --host 127.0.0.1 --port 8081 --ctx-size 4096 --parallel 1
+llama-server --model /pfad/modell.gguf --alias gemma-4-26b-a4b --host 127.0.0.1 --port 8081 --ctx-size 32768 --no-context-shift --cache-ram 0 --log-disable --predict -1 --parallel 1
 ```
 
 3. Schlüssel **einmal lokal** erzeugen:

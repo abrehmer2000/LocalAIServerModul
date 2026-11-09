@@ -19,10 +19,8 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"os/signal"
 	"os/user"
 	"strings"
-	"syscall"
 	"time"
 )
 
@@ -43,8 +41,11 @@ func deviceCommand(command string, args []string) error {
 	model := flags.String("model", catalog.DefaultAlias, "public model alias")
 	upstream := flags.String("upstream-model", catalog.DefaultAlias, "engine model alias")
 	revision := flags.String("revision", "", "model and engine revision")
+	engineHash := flags.String("engine-sha256", "", "pinned llama-server binary SHA-256")
 	modelHash := flags.String("model-sha256", "", "model file SHA-256 for managed engine")
 	connection := flags.String("connection", "direct", "agent connection mode: direct or outbound")
+	vision := flags.Bool("vision", false, "model supports image input")
+	contextPerSlot := flags.Int("context-per-slot", 32768, "verified context per slot")
 	capacity := flags.Int("capacity", 1, "maximum concurrent inference requests")
 	if err := flags.Parse(args); err != nil {
 		return err
@@ -71,7 +72,7 @@ func deviceCommand(command string, args []string) error {
 		if *connection == "outbound" && *address == "" {
 			*address = "https://agent.invalid"
 		}
-		n := config.Node{Connection: *connection, ID: *id, URL: *address, Model: *model, UpstreamModel: *upstream, Revision: *revision, Capacity: *capacity, ModelSHA256: *modelHash}
+		n := config.Node{EngineSHA256: *engineHash, EngineProtocol: "llama.cpp", MaxBodyBytes: c.MaxBodyBytes, Vision: *vision, ContextPerRequest: *contextPerSlot, Connection: *connection, ID: *id, URL: *address, Model: *model, UpstreamModel: *upstream, Revision: *revision, Capacity: *capacity, ModelSHA256: *modelHash}
 		if err = config.ValidateNode(n); err != nil {
 			return err
 		}
@@ -115,6 +116,9 @@ func agentCommand(args []string) error {
 	state := flags.String("state", "data/agent.json", "private persistent device identity")
 	listen := flags.String("listen", "127.0.0.1:8091", "agent HTTPS listener")
 	engine := flags.String("engine", "http://127.0.0.1:8081", "local engine origin")
+	engineHash := flags.String("engine-sha256", "", "pinned engine binary SHA-256")
+	templateFile := flags.String("chat-template-file", "", "optional pinned chat template")
+	templateHash := flags.String("chat-template-sha256", "", "chat template SHA-256")
 	binary := flags.String("engine-binary", "", "optional llama-server executable to supervise")
 	model := flags.String("model-file", "", "local GGUF model path")
 	contextSize := flags.Int("context-size", 0, "total engine context (default: 32768 per parallel slot)")
@@ -124,7 +128,7 @@ func agentCommand(args []string) error {
 	if err := flags.Parse(args[1:]); err != nil {
 		return err
 	}
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	ctx, stop := terminationContext()
 	defer stop()
 	if args[0] == "join" {
 		if !*tokenStdin {
@@ -150,13 +154,16 @@ func agentCommand(args []string) error {
 		return err
 	}
 	defer runner.Close()
-	runner.Runtime = agent.EngineOptions{Projector: *projector, ProjectorSHA256: *projectorHash}
+	runner.Runtime = agent.EngineOptions{EngineSHA256: *engineHash, Template: *templateFile, TemplateSHA256: *templateHash, Projector: *projector, ProjectorSHA256: *projectorHash}
 	if err := runner.Runtime.Validate(); err != nil {
 		return err
 	}
 	stateInfo, err := agent.Load(*state)
 	if err != nil {
 		return err
+	}
+	if runner.Runtime.EngineSHA256 == "" {
+		runner.Runtime.EngineSHA256 = stateInfo.Identity.Node.EngineSHA256
 	}
 	if stateInfo.Identity.Node.Connection == "outbound" {
 		return runOutboundAgent(ctx, runner, *binary, *model, *contextSize)
@@ -166,7 +173,17 @@ func agentCommand(args []string) error {
 		return err
 	}
 	server := &http.Server{Addr: *listen, Handler: runner.Handler(), TLSConfig: tlsConfig, ReadHeaderTimeout: 10 * time.Second, ReadTimeout: config.UploadTimeout, IdleTimeout: 30 * time.Second, MaxHeaderBytes: 16 << 10}
-	runCtx, cancel := context.WithCancel(ctx)
+	runCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
+	go func() {
+		select {
+		case <-ctx.Done():
+			drain, done := context.WithTimeout(context.Background(), time.Hour)
+			_ = runner.Drain(drain)
+			done()
+			cancel()
+		case <-runCtx.Done():
+		}
+	}()
 	defer cancel()
 	engineDone := make(chan struct{})
 	engineErrors := make(chan error, 1)
@@ -220,7 +237,17 @@ func agentCommand(args []string) error {
 }
 
 func runOutboundAgent(ctx context.Context, r *agent.Runner, binary, model string, contextSize int) error {
-	work, cancel := context.WithCancel(ctx)
+	work, cancel := context.WithCancel(context.WithoutCancel(ctx))
+	go func() {
+		select {
+		case <-ctx.Done():
+			drain, done := context.WithTimeout(context.Background(), time.Hour)
+			_ = r.Drain(drain)
+			done()
+			cancel()
+		case <-work.Done():
+		}
+	}()
 	defer cancel()
 	hbDone := make(chan struct{})
 	go func() {

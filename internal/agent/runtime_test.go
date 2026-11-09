@@ -40,7 +40,7 @@ func TestRuntimeContextAndProjectorIntegrity(t *testing.T) {
 		}
 	}
 	args, err = (EngineOptions{}).arguments(context.Background(), 1, 4096)
-	if err != nil || !strings.Contains(strings.Join(args, " "), "--ctx-size 4096") {
-		t.Fatal("legacy explicit total context lost", err)
+	if err == nil {
+		t.Fatal("undersized legacy context accepted")
 	}
 }

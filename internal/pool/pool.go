@@ -15,23 +15,31 @@ import (
 )
 
 type Node struct {
-	Config      config.Node
-	Client      *http.Client
-	active      int
-	failedUntil time.Time
-	dynamic     bool
-	ready       bool
-	leaseUntil  time.Time
-	authorized  func() bool
+	engineStarts uint64
+	Config       config.Node
+	Client       *http.Client
+	active       int
+	failedUntil  time.Time
+	meanDuration time.Duration
+	oldest       time.Time
+	lifecycle    string
+	dynamic      bool
+	ready        bool
+	leaseUntil   time.Time
+	authorized   func() bool
 }
 type Pool struct {
-	mu     sync.Mutex
-	nodes  []*Node
-	cursor int
+	mu       sync.Mutex
+	nodes    []*Node
+	cursor   int
+	waitMu   sync.Mutex
+	waiters  []*waiter
+	changed  chan struct{}
+	draining bool
 }
 
 func New(configs []config.Node) (*Pool, error) {
-	p := &Pool{}
+	p := &Pool{changed: make(chan struct{})}
 	for _, c := range configs {
 		tlsConfig := &tls.Config{MinVersion: tls.VersionTLS12}
 		if c.CAFile != "" {
@@ -112,6 +120,10 @@ func (p *Pool) acquire(model, id string) (*Node, func(bool)) {
 		return nil, nil
 	}
 	n := p.nodes[best]
+	if n.active == 0 {
+		n.oldest = time.Now()
+	}
+	started := time.Now()
 	n.active++
 	p.cursor = (best + 1) % len(p.nodes)
 	var once sync.Once
@@ -119,7 +131,16 @@ func (p *Pool) acquire(model, id string) (*Node, func(bool)) {
 		once.Do(func() {
 			p.mu.Lock()
 			defer p.mu.Unlock()
+			if !failed {
+				d := time.Since(started)
+				if n.meanDuration == 0 {
+					n.meanDuration = d
+				} else {
+					n.meanDuration = (3*n.meanDuration + d) / 4
+				}
+			}
 			n.active--
+			p.notifyLocked()
 			if failed {
 				n.failedUntil = time.Now().Add(5 * time.Second)
 			}
@@ -154,7 +175,7 @@ func (p *Pool) AddDynamic(c config.Node, clientTLS *tls.Config, authorized func(
 			n.Client.CloseIdleConnections()
 			return errors.New("node ID already registered")
 		}
-		if other.Config.Model == c.Model && other.Config.Revision != c.Revision {
+		if other.Config.Model == c.Model && (other.Config.Revision != c.Revision || other.Config.Vision != c.Vision || other.Config.ContextSize() != c.ContextSize() || other.Config.Kind != c.Kind || other.Config.EngineSHA256 != c.EngineSHA256 || other.Config.TemplateSHA256 != c.TemplateSHA256) {
 			n.Client.CloseIdleConnections()
 			return errors.New("model revision conflict")
 		}
@@ -182,6 +203,7 @@ func (p *Pool) Heartbeat(id string, ready bool, ttl time.Duration) {
 		if n.Config.ID == id && n.dynamic {
 			n.ready = ready
 			n.leaseUntil = time.Now().Add(ttl)
+			p.notifyLocked()
 			return
 		}
 	}
@@ -231,3 +253,40 @@ func (p *Pool) SetTransport(id string, transport http.RoundTripper) {
 		}
 	}
 }
+
+// ProbeNode does not reserve an inference slot: tokenizer/health endpoints must
+// remain callable while the inference queue is full.
+func (p *Pool) ProbeNode(model string) *Node {
+	p.mu.Lock()
+	nodes := append([]*Node(nil), p.nodes...)
+	p.mu.Unlock()
+	for _, n := range nodes {
+		if n.Config.Model == model && (!n.dynamic || n.authorized()) {
+			return n
+		}
+	}
+	return nil
+}
+
+func (p *Pool) EngineStarts(id string) uint64 {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	for _, n := range p.nodes {
+		if n.Config.ID == id {
+			return n.engineStarts
+		}
+	}
+	return 0
+}
+func (p *Pool) SetEngineStarts(id string, count uint64) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	for _, n := range p.nodes {
+		if n.Config.ID == id {
+			n.engineStarts = count
+			return
+		}
+	}
+}
+
+func (n *Node) Origin() string { return strings.TrimRight(n.Config.URL, "/") }

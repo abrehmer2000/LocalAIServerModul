@@ -681,7 +681,7 @@
         gateway: byId("gateway-address").value.replace(/\/$/, ""),
         model: byId("server-model").value,
         revision: byId("server-revision").value,
-        capacity: Number(byId("server-capacity").value),
+        engine_protocol: "llama.cpp", capacity: Number(byId("server-capacity").value),
       });
       if (s !== session) return;
       setupNode = bundle.node_id;

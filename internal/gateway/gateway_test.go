@@ -24,7 +24,7 @@ const testKey = "test-only-key-never-used-in-production"
 
 func cfg(nodes ...config.Node) config.Config {
 	h := sha256.Sum256([]byte(testKey))
-	return config.Config{Listen: "127.0.0.1:8080", Database: "unused.db", TimeoutSeconds: 5, MaxBodyBytes: 4096, MaxOutputTokens: 128, Keys: []config.Key{{ID: "app-01", SHA256: hex.EncodeToString(h[:])}}, Nodes: nodes}
+	return config.Config{Listen: "127.0.0.1:8080", Database: "unused.db", TimeoutSeconds: 5, QueueWaitSeconds: 1, MaxBodyBytes: 4096, MaxOutputTokens: 128, Keys: []config.Key{{ID: "app-01", SHA256: hex.EncodeToString(h[:])}}, Nodes: nodes}
 }
 func node(id, url string) config.Node {
 	return config.Node{ID: id, URL: url, Model: "chat", UpstreamModel: "engine-model", Revision: "test-revision", Capacity: 1}
@@ -170,10 +170,10 @@ func TestValidationAndAuditFailClosed(t *testing.T) {
 		status                int
 	}{
 		{"missing key", "", "u", chat, false, 401},
-		{"missing user", testKey, "", chat, false, 400},
+		{"missing user accepted but engine offline", testKey, "", chat, false, 503},
 		{"invalid user", testKey, "bad user", chat, false, 400},
 		{"unknown parameter", testKey, "u", `{"model":"chat","messages":[],"tools":[]}`, false, 400},
-		{"oversized", testKey, "u", strings.Repeat("x", 5000), false, 400},
+		{"oversized", testKey, "u", strings.Repeat("x", 5000), false, 413},
 		{"unknown model", testKey, "u", strings.Replace(chat, `"chat"`, `"other"`, 1), false, 404},
 		{"audit unavailable", testKey, "u", chat, true, 503},
 	} {
@@ -221,12 +221,12 @@ func TestBrokenStreamNeverCompletes(t *testing.T) {
 	}
 	defer resp.Body.Close()
 	data, _ := io.ReadAll(resp.Body)
-	if bytes.Contains(data, []byte("[DONE]")) || !bytes.Contains(data, []byte("stream_interrupted")) {
+	if bytes.Contains(data, []byte("[DONE]")) || !bytes.Contains(data, []byte("upstream_failure")) {
 		t.Fatalf("unexpected stream %s", data)
 	}
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	if len(a.events) != 2 || a.events[1].Outcome != "stream_interrupted" {
+	if len(a.events) != 2 || a.events[1].Outcome != "upstream_failure" {
 		t.Fatalf("missing failure: %+v", a.events)
 	}
 }

@@ -40,8 +40,12 @@ type HeartbeatResponse struct {
 	Plan  *management.Plan `json:"plan,omitempty"`
 }
 type Heartbeat struct {
-	Report *management.Report `json:"report,omitempty"`
-	Ready  bool               `json:"ready"`
+	EngineStarts    uint64             `json:"engine_starts,omitempty"`
+	EngineSHA256    string             `json:"engine_sha256,omitempty"`
+	TemplateSHA256  string             `json:"template_sha256,omitempty"`
+	ProjectorSHA256 string             `json:"projector_sha256,omitempty"`
+	Report          *management.Report `json:"report,omitempty"`
+	Ready           bool               `json:"ready"`
 }
 type Service struct {
 	config      config.Config
@@ -82,7 +86,7 @@ func New(c config.Config, store *audit.Store, p *pool.Pool) (*Service, error) {
 	if _, err = cert.Verify(x509.VerifyOptions{Roots: roots, KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth}}); err != nil {
 		return nil, err
 	}
-	s := &Service{config: c, gatewayCert: cert, reports: map[string]management.Report{}, broker: tunnel.New(), store: store, pool: p, authority: a, states: map[string]bool{}, seen: map[string]time.Time{}, clientTLS: &tls.Config{MinVersion: tls.VersionTLS12, RootCAs: roots, ClientCAs: roots, Certificates: []tls.Certificate{pair}}}
+	s := &Service{config: c, gatewayCert: cert, reports: map[string]management.Report{}, broker: tunnel.New(c.MaxBodyBytes), store: store, pool: p, authority: a, states: map[string]bool{}, seen: map[string]time.Time{}, clientTLS: &tls.Config{MinVersion: tls.VersionTLS12, RootCAs: roots, ClientCAs: roots, Certificates: []tls.Certificate{pair}}}
 	devices, err := store.Devices(context.Background())
 	if err != nil {
 		return nil, err
@@ -224,6 +228,10 @@ func (s *Service) heartbeat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if h.Report != nil {
+		h.EngineStarts = h.Report.Restarts
+		h.EngineSHA256 = h.Report.EngineSHA256
+		h.TemplateSHA256 = h.Report.TemplateSHA256
+		h.ProjectorSHA256 = h.Report.ProjectorSHA256
 		if !validReport(*h.Report) {
 			deny(w, 400)
 			return
@@ -236,6 +244,20 @@ func (s *Service) heartbeat(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		s.reports[n.ID] = *h.Report
+	}
+	if !validArtifactHash(h.EngineSHA256) || !validArtifactHash(h.TemplateSHA256) || !validArtifactHash(h.ProjectorSHA256) {
+		deny(w, 400)
+		return
+	}
+	if n.EngineSHA256 != "" && h.EngineSHA256 != n.EngineSHA256 || n.TemplateSHA256 != "" && h.TemplateSHA256 != n.TemplateSHA256 {
+		h.Ready = false
+	}
+	if h.EngineStarts > s.pool.EngineStarts(n.ID) {
+		if s.store.Append(r.Context(), audit.Event{Type: "engine.started", NodeID: n.ID, Model: n.Model, Revision: n.Revision, EngineSHA256: h.EngineSHA256, TemplateSHA256: h.TemplateSHA256, ProjectorSHA256: h.ProjectorSHA256}) != nil {
+			deny(w, 503)
+			return
+		}
+		s.pool.SetEngineStarts(n.ID, h.EngineStarts)
 	}
 	if n.Connection == "outbound" {
 		h.Ready = h.Ready && s.broker.Online(n.ID)
@@ -254,6 +276,13 @@ func (s *Service) heartbeat(w http.ResponseWriter, r *http.Request) {
 	}
 	s.seen[n.ID] = time.Now()
 	s.pool.Heartbeat(n.ID, h.Ready, Lease)
+	lifecycle := "unavailable"
+	if h.Ready {
+		lifecycle = "ready"
+	} else if h.Report != nil && (h.Report.State == "starting" || h.Report.State == "verifying" || h.Report.State == "downloading") {
+		lifecycle = "loading"
+	}
+	s.pool.Lifecycle(n.ID, lifecycle)
 	plan, _ := s.store.Plan(r.Context(), n.ID)
 	respond(w, 200, HeartbeatResponse{Lease: int(Lease / time.Second), Plan: plan})
 }
@@ -395,6 +424,10 @@ func (s *Service) agentEvent(w http.ResponseWriter, r *http.Request) {
 	allowed := map[string]bool{"backup_export_requested": true, "settings_change_requested": true, "settings_changed": true, "autostart_enable_requested": true, "autostart_disable_requested": true, "autostart_enabled": true, "autostart_disabled": true}
 	if decode(w, r, &in) != nil || !allowed[in.Action] {
 		deny(w, 400)
+		return
+	}
+	if in.Action == "settings_change_requested" && s.store.AllowMaintenance(r.Context()) != nil {
+		deny(w, 409)
 		return
 	}
 	if s.store.Append(r.Context(), audit.Event{Type: "agent." + in.Action, NodeID: n.ID, Actor: "device:" + n.ID}) != nil {

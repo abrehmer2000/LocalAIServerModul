@@ -22,10 +22,21 @@ func prozesslogProfileCommand(args []string) error {
 	if err != nil {
 		return err
 	}
-	c.TimeoutSeconds = config.DefaultTimeoutSeconds
-	c.MaxBodyBytes = config.MaxRequestBytes
+	if c.TimeoutSeconds < config.DefaultTimeoutSeconds {
+		c.TimeoutSeconds = config.DefaultTimeoutSeconds
+	}
+	if c.TimeoutSeconds < c.MinimumTimeout() {
+		c.TimeoutSeconds = c.MinimumTimeout()
+	}
+	if c.MaxBodyBytes < config.MaxRequestBytes {
+		c.MaxBodyBytes = config.MaxRequestBytes
+	}
 	if c.MaxOutputTokens < config.DefaultOutputTokens {
 		c.MaxOutputTokens = config.DefaultOutputTokens
+	}
+	for i := range c.Nodes {
+		c.Nodes[i].EngineProtocol = "llama.cpp"
+		c.Nodes[i].MaxBodyBytes = c.MaxBodyBytes
 	}
 	if err = c.Validate(); err != nil {
 		return err
@@ -52,6 +63,6 @@ func prozesslogProfileCommand(args []string) error {
 	if closeErr != nil {
 		return closeErr
 	}
-	fmt.Fprintln(os.Stdout, "Prozesslog-Profil erstellt. Vor dem Neustart prüfen: Engine-Kontext je Slot, vier Slots, Vision-Projektor und Proxy-Zeitlimit. Knoten-Kapazitäten bleiben unverändert.")
+	fmt.Fprintln(os.Stdout, "Prozesslog-Profil erstellt. Vor dem Neustart prüfen: Engine-Kontext je Slot, reale Slotzahl, Vision-Projektor und Proxy-Zeitlimit. Knoten-Kapazitäten bleiben unverändert.")
 	return nil
 }

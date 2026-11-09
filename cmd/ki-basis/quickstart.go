@@ -14,14 +14,13 @@ import (
 	"localaiserver/internal/config"
 	"localaiserver/internal/control"
 	"localaiserver/internal/gateway"
+	"localaiserver/internal/httpbound"
 	"localaiserver/internal/pki"
 	"net"
 	"net/http"
 	"os"
-	"os/signal"
 	"path/filepath"
 	"strings"
-	"syscall"
 	"time"
 )
 
@@ -146,12 +145,12 @@ func quickstartCommand(args []string) error {
 	mux.Handle("/internal/", controller.Handler())
 	mux.Handle("/admin/", g.Admin(controller.AdminHandler()))
 	mux.Handle("/", g.Handler())
-	backend := &http.Server{Handler: mux, TLSConfig: controller.TLSConfig(), ReadHeaderTimeout: 10 * time.Second, ReadTimeout: config.UploadTimeout, IdleTimeout: 30 * time.Second, MaxHeaderBytes: 16 << 10}
-	preview, err := browserHandler("https://"+c.Listen, c.ControlCACert, true)
+	backend := &http.Server{Handler: gateway.StrictPaths(mux), TLSConfig: controller.TLSConfig(), ReadHeaderTimeout: 10 * time.Second, ReadTimeout: config.UploadTimeout, IdleTimeout: 30 * time.Second, MaxHeaderBytes: 16 << 10}
+	preview, err := browserHandler("https://"+c.Listen, c.ControlCACert, true, c)
 	if err != nil {
 		return err
 	}
-	frontend := &http.Server{Handler: preview, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: config.UploadTimeout, WriteTimeout: config.ProxyTimeout, IdleTimeout: 30 * time.Second}
+	frontend := &http.Server{Handler: preview, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: config.UploadTimeout, WriteTimeout: c.ProxyBudget(), IdleTimeout: 30 * time.Second}
 	backendListener, err := net.Listen("tcp", c.Listen)
 	if err != nil {
 		return err
@@ -166,12 +165,14 @@ func quickstartCommand(args []string) error {
 	if err = store.Append(context.Background(), audit.Event{Type: "gateway.started", Outcome: "local_preview"}); err != nil {
 		return err
 	}
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	ctx, stop := terminationContext()
 	defer stop()
 	go controller.Monitor(ctx)
 	results := make(chan error, 2)
-	go func() { results <- backend.ServeTLS(backendListener, c.TLSCert, c.TLSKey) }()
-	go func() { results <- frontend.Serve(frontListener) }()
+	go func() {
+		results <- backend.ServeTLS(httpbound.New(backendListener, c.ConcurrentLimit()*4), c.TLSCert, c.TLSKey)
+	}()
+	go func() { results <- frontend.Serve(httpbound.New(frontListener, c.ConcurrentLimit()*4)) }()
 	address := "http://" + browserAddress
 	// This is an explicit local setup screen, equivalent to keygen, not a service log.
 	if key == "" {
@@ -191,8 +192,10 @@ func quickstartCommand(args []string) error {
 	case result = <-results:
 	case <-ctx.Done():
 	}
-	shutdown, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	g.BeginDrain()
+	shutdown, cancel := context.WithTimeout(context.Background(), c.ProxyBudget())
 	defer cancel()
+	_ = g.WaitIdle(shutdown)
 	_ = frontend.Shutdown(shutdown)
 	_ = backend.Shutdown(shutdown)
 	if errors.Is(result, http.ErrServerClosed) {

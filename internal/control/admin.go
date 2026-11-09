@@ -35,6 +35,14 @@ func randomID(prefix string) string {
 // AdminHandler must be wrapped in gateway.Admin; it never authenticates ordinary API keys itself.
 func (s *Service) AdminHandler() http.Handler {
 	mux := http.NewServeMux()
+	mux.HandleFunc("PUT /admin/maintenance-window", s.maintenanceWindow)
+	mux.HandleFunc("DELETE /admin/import-leases/{id}", func(w http.ResponseWriter, r *http.Request) {
+		if s.store.ClearImportLease(r.Context(), r.PathValue("id"), event.FromContext(r.Context())) != nil {
+			deny(w, 503)
+			return
+		}
+		respond(w, 200, map[string]bool{"released": true})
+	})
 	mux.HandleFunc("GET /admin/overview", s.overview)
 	mux.HandleFunc("POST /admin/enroll", s.enroll)
 	mux.HandleFunc("POST /admin/nodes/{id}/test", s.testNode)
@@ -87,11 +95,14 @@ func (s *Service) overview(w http.ResponseWriter, r *http.Request) {
 }
 func (s *Service) enroll(w http.ResponseWriter, r *http.Request) {
 	var in struct {
-		ID       string `json:"id"`
-		Gateway  string `json:"gateway"`
-		Model    string `json:"model"`
-		Revision string `json:"revision"`
-		Capacity int    `json:"capacity"`
+		EngineProtocol    string `json:"engine_protocol"`
+		Vision            bool   `json:"vision"`
+		ContextPerRequest int    `json:"context_per_request"`
+		ID                string `json:"id"`
+		Gateway           string `json:"gateway"`
+		Model             string `json:"model"`
+		Revision          string `json:"revision"`
+		Capacity          int    `json:"capacity"`
 	}
 	if decode(w, r, &in) != nil {
 		deny(w, 400)
@@ -116,7 +127,7 @@ func (s *Service) enroll(w http.ResponseWriter, r *http.Request) {
 	if in.Capacity == 0 {
 		in.Capacity = 1
 	}
-	n := config.Node{ID: in.ID, URL: "https://agent.invalid", Model: in.Model, UpstreamModel: in.Model, Revision: in.Revision, Capacity: in.Capacity, Connection: "outbound"}
+	n := config.Node{EngineProtocol: in.EngineProtocol, MaxBodyBytes: s.config.MaxBodyBytes, Vision: in.Vision, ContextPerRequest: in.ContextPerRequest, ID: in.ID, URL: "https://agent.invalid", Model: in.Model, UpstreamModel: in.Model, Revision: in.Revision, Capacity: in.Capacity, Connection: "outbound"}
 	if config.ValidateNode(n) != nil {
 		deny(w, 400)
 		return
@@ -230,7 +241,38 @@ func (s *Service) recentAudit(w http.ResponseWriter, r *http.Request) {
 
 // ValidateReport accepts bounded metadata only; arbitrary engine text is never stored.
 func validReport(r management.Report) bool {
-	states := map[string]bool{"": true, "idle": true, "external": true, "downloading": true, "verifying": true, "downloaded": true, "starting": true, "running": true, "stopped": true, "error": true}
-	errors := map[string]bool{"": true, "download_failed": true, "disk_full": true, "hash_mismatch": true, "engine_missing": true, "engine_failed": true, "external_engine_running": true, "invalid_model": true, "model_not_downloaded": true}
-	return states[r.State] && errors[r.Error] && len(r.GPU) <= 512 && r.VRAMBytes <= 1<<50 && r.FreeBytes <= 1<<60 && len(r.OS) < 32 && len(r.Arch) < 32 && r.CPUs >= 0 && r.CPUs <= 65536 && len(r.Generation) < 128 && r.Downloaded >= 0 && r.Total >= 0 && (r.SHA256 == "" || len(r.SHA256) == 64)
+	states := map[string]bool{"": true, "idle": true, "external": true, "downloading": true, "verifying": true, "downloaded": true, "starting": true, "running": true, "restarting": true, "stopped": true, "error": true}
+	errors := map[string]bool{"": true, "download_failed": true, "disk_full": true, "hash_mismatch": true, "engine_missing": true, "engine_failed": true, "external_engine_running": true, "invalid_model": true, "model_not_downloaded": true, "invalid_runtime_options": true, "engine_revision_unpinned": true, "engine_revision_mismatch": true}
+	return validArtifactHash(r.EngineSHA256) && validArtifactHash(r.TemplateSHA256) && validArtifactHash(r.ProjectorSHA256) && states[r.State] && errors[r.Error] && len(r.GPU) <= 512 && r.VRAMBytes <= 1<<50 && r.FreeBytes <= 1<<60 && len(r.OS) < 32 && len(r.Arch) < 32 && r.CPUs >= 0 && r.CPUs <= 65536 && len(r.Generation) < 128 && r.Downloaded >= 0 && r.Total >= 0 && (r.SHA256 == "" || len(r.SHA256) == 64)
+}
+
+func (s *Service) maintenanceWindow(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		From time.Time `json:"from"`
+		To   time.Time `json:"to"`
+	}
+	if decode(w, r, &in) != nil {
+		deny(w, 400)
+		return
+	}
+	if s.store.SetMaintenanceWindow(r.Context(), in.From, in.To, event.FromContext(r.Context())) != nil {
+		deny(w, 400)
+		return
+	}
+	respond(w, 200, map[string]bool{"announced": true})
+}
+
+func validArtifactHash(hash string) bool {
+	if hash == "" {
+		return true
+	}
+	if len(hash) != 64 {
+		return false
+	}
+	for _, c := range hash {
+		if !(c >= '0' && c <= '9' || c >= 'a' && c <= 'f') {
+			return false
+		}
+	}
+	return true
 }

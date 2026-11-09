@@ -17,11 +17,9 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
-	"os/signal"
 	"path/filepath"
 	"runtime"
 	"sync"
-	"syscall"
 	"time"
 )
 
@@ -143,9 +141,9 @@ func agentUICommand(args []string) error {
 		return lockErr
 	}
 	defer release()
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	ctx, stop := terminationContext()
 	defer stop()
-	a := &localAgent{dir: absolute, ctx: ctx, settings: agentSettings{Engine: "http://127.0.0.1:8082", Models: filepath.Join(absolute, "models")}}
+	a := &localAgent{dir: absolute, ctx: context.WithoutCancel(ctx), settings: agentSettings{Engine: "http://127.0.0.1:8082", Models: filepath.Join(absolute, "models")}}
 	exe, _ := os.Executable()
 	for _, candidate := range []string{filepath.Join(filepath.Dir(exe), "llama-server"), filepath.Join(filepath.Dir(exe), "llama-server.exe"), filepath.Join(filepath.Dir(exe), "runtime", "llama-server"), filepath.Join(filepath.Dir(exe), "runtime", "llama-server.exe"), "/workspace/llama-runtime/llama-server", "/workspace/llama.cpp/build/bin/llama-server"} {
 		if _, e := os.Stat(candidate); e == nil {
@@ -326,6 +324,10 @@ func agentUICommand(args []string) error {
 		defer os.Remove(ca)
 		joinCtx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
 		defer cancel()
+		if e = pinSettings(joinCtx, &in.Settings); e != nil {
+			writeLocalJSON(w, 400, map[string]string{"error": "engine_revision_mismatch"})
+			return
+		}
 		if e = agent.Join(joinCtx, in.Bundle.Gateway, in.Bundle.Token, ca, filepath.Join(a.dir, "agent.json")); e != nil {
 			writeLocalJSON(w, 502, map[string]string{"error": "enrollment_failed_check_address_certificate_and_code"})
 			return
@@ -361,6 +363,13 @@ func agentUICommand(args []string) error {
 		}
 		if err := validateExistingModel(next.ExistingModel); err != nil {
 			writeLocalJSON(w, 400, map[string]string{"error": "existing_model_not_found"})
+			return
+		}
+		if next.Binary == a.settings.Binary && next.Runtime.EngineSHA256 == "" {
+			next.Runtime.EngineSHA256 = a.settings.Runtime.EngineSHA256
+		}
+		if err := pinSettings(r.Context(), &next); err != nil {
+			writeLocalJSON(w, 400, map[string]string{"error": "engine_revision_mismatch"})
 			return
 		}
 		if a.runner != nil {
@@ -492,6 +501,11 @@ func agentUICommand(args []string) error {
 	case err = <-exit:
 	case <-ctx.Done():
 	}
+	if a.runner != nil {
+		drain, done := context.WithTimeout(context.Background(), time.Hour)
+		_ = a.runner.Drain(drain)
+		done()
+	}
 	shutdown, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	_ = server.Shutdown(shutdown)
@@ -532,4 +546,18 @@ func validateExistingModel(path string) error {
 		return errors.New("invalid existing model path")
 	}
 	return nil
+}
+
+func pinSettings(ctx context.Context, s *agentSettings) error {
+	if s.Binary == "" {
+		return nil
+	}
+	if s.Runtime.EngineSHA256 == "" {
+		hash, err := agent.FileSHA256(ctx, s.Binary)
+		if err != nil {
+			return err
+		}
+		s.Runtime.EngineSHA256 = hash
+	}
+	return s.Runtime.VerifyBinary(ctx, s.Binary)
 }

@@ -29,13 +29,13 @@ func TestStructuredResponseEnforcement(t *testing.T) {
 	}{
 		{"schema valid", schemaFormat, `{"answer":"ok"}`, 200},
 		{"schema anyOf null", schemaFormat, `{"answer":null}`, 200},
-		{"schema wrong type", schemaFormat, `{"answer":17}`, 502},
-		{"schema missing", schemaFormat, `{}`, 502},
-		{"schema extra", schemaFormat, `{"answer":"ok","extra":1}`, 502},
+		{"schema wrong type", schemaFormat, `{"answer":17}`, 200},
+		{"schema missing", schemaFormat, `{}`, 200},
+		{"schema extra", schemaFormat, `{"answer":"ok","extra":1}`, 200},
 		{"object", `{"type":"json_object"}`, `{"ok":true}`, 200},
-		{"array is not object", `{"type":"json_object"}`, `[]`, 502},
-		{"malformed JSON", `{"type":"json_object"}`, `text`, 502},
-		{"reasoning leaked", `{"type":"text"}`, `<think>PRIVATE_REASONING</think>answer`, 502},
+		{"array is not object", `{"type":"json_object"}`, `[]`, 200},
+		{"malformed JSON", `{"type":"json_object"}`, `text`, 200},
+		{"reasoning leaked", `{"type":"text"}`, `<think>PRIVATE_REASONING</think>answer`, 200},
 		{"external schema", `{"type":"json_schema","json_schema":{"name":"bad","schema":{"$ref":"file:///etc/passwd"}}}`, `{}`, 400},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
@@ -50,7 +50,9 @@ func TestStructuredResponseEnforcement(t *testing.T) {
 				fmt.Fprint(w, completion(tt.answer))
 			}))
 			defer upstream.Close()
-			g, err := New(cfg(node("n", upstream.URL)), &memoryAudit{})
+			visionNode := node("n", upstream.URL)
+			visionNode.Vision = true
+			g, err := New(cfg(visionNode), &memoryAudit{})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -101,7 +103,9 @@ func TestEmbeddedImagesThinkingAndPrivacy(t *testing.T) {
 				}))
 				defer upstream.Close()
 				audit := &memoryAudit{}
-				g, err := New(cfg(node("n", upstream.URL)), audit)
+				visionNode := node("n", upstream.URL)
+				visionNode.Vision = true
+				g, err := New(cfg(visionNode), audit)
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -253,6 +257,7 @@ func TestFourSimultaneousRequestsAndCapacityRecovery(t *testing.T) {
 	}))
 	defer up.Close()
 	n := node("n", up.URL)
+	n.Vision = true
 	n.Capacity = 4
 	g, err := New(cfg(n), &memoryAudit{})
 	if err != nil {

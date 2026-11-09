@@ -45,7 +45,7 @@ func adminFixture(t *testing.T) *fixture {
 }
 func (f *fixture) enrollOutbound(id, model string) (*agent.Runner, string) {
 	f.t.Helper()
-	body, _ := json.Marshal(map[string]any{"id": id, "gateway": f.server.URL, "model": model, "revision": "r1", "capacity": 1})
+	body, _ := json.Marshal(map[string]any{"id": id, "gateway": f.server.URL, "model": model, "revision": "r1", "capacity": 1, "vision": true})
 	status, data := f.admin("POST", "/admin/enroll", string(body))
 	if status != 201 {
 		f.t.Fatalf("enroll %d %s", status, data)
@@ -213,7 +213,7 @@ func TestOutboundLongImageRequestAndRetryAfter(t *testing.T) {
 		}
 		select {
 		case <-time.After(31 * time.Second):
-			fmt.Fprint(w, `{"choices":[{"message":{"content":"ok"}}]}`)
+			fmt.Fprint(w, `{"choices":[{"message":{"content":"ok"},"finish_reason":"stop"}],"usage":{"prompt_tokens":1,"completion_tokens":1}}`)
 		case <-r.Context().Done():
 		}
 	}))

@@ -22,6 +22,7 @@ func strictJSON(raw []byte, out any) error {
 }
 
 func validateMessages(messages []json.RawMessage) error {
+	images := 0
 	for _, raw := range messages {
 		var m struct {
 			Role    string          `json:"role"`
@@ -56,6 +57,10 @@ func validateMessages(messages []json.RawMessage) error {
 					return errors.New("invalid text part")
 				}
 			case "image_url":
+				images++
+				if images > 1 {
+					return errors.New("only one image per request supported")
+				}
 				if m.Role != "user" || p.Image == nil || p.Text != nil {
 					return errors.New("invalid image part")
 				}
@@ -105,4 +110,84 @@ func validateImage(url string) error {
 		return errors.New("image signature differs from MIME type")
 	}
 	return nil
+}
+
+func hasImage(messages []json.RawMessage) bool {
+	for _, raw := range messages {
+		var m struct {
+			Content json.RawMessage `json:"content"`
+		}
+		_ = json.Unmarshal(raw, &m)
+		var parts []struct {
+			Type string `json:"type"`
+		}
+		if json.Unmarshal(m.Content, &parts) == nil {
+			for _, p := range parts {
+				if p.Type == "image_url" {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
+// JSON permits escaped UTF-16; reject isolated surrogate code units rather than
+// letting encoding/json silently substitute a replacement character.
+func validUnicodeEscapes(raw []byte) bool {
+	hex := func(b byte) int {
+		switch {
+		case b >= '0' && b <= '9':
+			return int(b - '0')
+		case b >= 'a' && b <= 'f':
+			return int(b-'a') + 10
+		case b >= 'A' && b <= 'F':
+			return int(b-'A') + 10
+		}
+		return -1
+	}
+	unit := func(i int) int {
+		if i+4 > len(raw) {
+			return -1
+		}
+		v := 0
+		for _, b := range raw[i : i+4] {
+			n := hex(b)
+			if n < 0 {
+				return -1
+			}
+			v = v*16 + n
+		}
+		return v
+	}
+	for i := 0; i < len(raw); i++ {
+		if raw[i] != 92 {
+			continue
+		}
+		i++
+		if i >= len(raw) {
+			return false
+		}
+		if raw[i] != 'u' {
+			continue
+		}
+		v := unit(i + 1)
+		if v < 0 {
+			return false
+		}
+		i += 4
+		if v >= 0xD800 && v <= 0xDBFF {
+			if i+6 >= len(raw) || raw[i+1] != 92 || raw[i+2] != 'u' {
+				return false
+			}
+			v = unit(i + 3)
+			if v < 0xDC00 || v > 0xDFFF {
+				return false
+			}
+			i += 6
+		} else if v >= 0xDC00 && v <= 0xDFFF {
+			return false
+		}
+	}
+	return true
 }

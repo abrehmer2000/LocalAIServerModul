@@ -20,6 +20,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -157,14 +158,20 @@ func validate(s State) (tls.Certificate, error) {
 }
 
 type Runner struct {
-	Runtime   EngineOptions
-	Manager   *ModelManager
-	mu        sync.RWMutex
-	state     State
-	pair      tls.Certificate
-	path      string
-	upstream  *url.URL
-	transport *http.Transport
+	observedTemplate string
+	observedContext  int
+	observedVision   bool
+	engineStarts     atomic.Uint64
+	draining         atomic.Bool
+	active           atomic.Int64
+	Runtime          EngineOptions
+	Manager          *ModelManager
+	mu               sync.RWMutex
+	state            State
+	pair             tls.Certificate
+	path             string
+	upstream         *url.URL
+	transport        *http.Transport
 }
 
 func New(path, engineURL string) (*Runner, error) {
@@ -222,9 +229,21 @@ func (r *Runner) Handler() http.Handler {
 	}}
 	mux := http.NewServeMux()
 	mux.Handle("POST /v1/chat/completions", http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-		req.Body = http.MaxBytesReader(w, req.Body, 16<<20)
+		if r.draining.Load() {
+			w.Header().Set("Retry-After", "1")
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(503)
+			_, _ = w.Write([]byte(`{"error":{"code":"model_unavailable","message":"Agent draining"}}`))
+			return
+		}
+		r.active.Add(1)
+		defer r.active.Add(-1)
+		req.Body = http.MaxBytesReader(w, req.Body, r.state.Identity.Node.BodyLimit())
 		proxy.ServeHTTP(w, req)
 	}))
+	for _, route := range []string{"POST /v1/embeddings", "POST /apply-template", "POST /tokenize", "GET /props", "GET /slots"} {
+		mux.Handle(route, proxy)
+	}
 	return mux
 }
 
@@ -236,10 +255,18 @@ func (r *Runner) Ready(ctx context.Context) bool {
 	if err != nil {
 		return false
 	}
+	healthData, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
 	resp.Body.Close()
 	if resp.StatusCode != 200 {
-		return false
+		var health struct {
+			Status string `json:"status"`
+		}
+		_ = json.Unmarshal(healthData, &health)
+		if resp.StatusCode != 503 || health.Status != "no slot available" {
+			return false
+		}
 	}
+
 	req, _ = http.NewRequestWithContext(ctx, "GET", r.upstream.String()+"/v1/models", nil)
 	resp, err = c.Do(req)
 	if err != nil {
@@ -262,6 +289,12 @@ func (r *Runner) Ready(ctx context.Context) bool {
 	r.mu.RUnlock()
 	for _, m := range models.Data {
 		if m.ID == expected {
+			r.mu.RLock()
+			node := r.state.Identity.Node
+			r.mu.RUnlock()
+			if node.EngineProtocol == "llama.cpp" {
+				return r.verifyProperties(ctx, node)
+			}
 			return true
 		}
 	}
@@ -270,6 +303,7 @@ func (r *Runner) Ready(ctx context.Context) bool {
 func (r *Runner) Heartbeat(ctx context.Context, ready bool) error {
 	r.mu.RLock()
 	state, pair := r.state, r.pair
+	observedTemplate := r.observedTemplate
 	r.mu.RUnlock()
 	c, err := client([]byte(state.Identity.CA), &pair)
 	if err != nil {
@@ -277,11 +311,17 @@ func (r *Runner) Heartbeat(ctx context.Context, ready bool) error {
 	}
 	defer c.CloseIdleConnections()
 	var response control.HeartbeatResponse
-	heartbeat := control.Heartbeat{Ready: ready}
+	if observedTemplate == "" {
+		observedTemplate = r.Runtime.TemplateSHA256
+	}
+	heartbeat := control.Heartbeat{Ready: ready && !r.draining.Load(), EngineStarts: r.engineStarts.Load(), EngineSHA256: r.Runtime.EngineSHA256, TemplateSHA256: observedTemplate, ProjectorSHA256: r.Runtime.ProjectorSHA256}
 	if r.Manager != nil {
 		report := r.Manager.Report()
+		if observedTemplate != "" {
+			report.TemplateSHA256 = observedTemplate
+		}
 		heartbeat.Report = &report
-		if report.State == "stopped" || report.State == "error" {
+		if report.State == "stopped" || report.State == "error" || report.State == "restarting" {
 			heartbeat.Ready = false
 		}
 	}
@@ -337,7 +377,7 @@ func (r *Runner) Heartbeat(ctx context.Context, ready bool) error {
 	return nil
 }
 func (r *Runner) RunHeartbeats(ctx context.Context, onError func(error)) {
-	timer := time.NewTicker(5 * time.Second)
+	timer := time.NewTicker(time.Second)
 	defer timer.Stop()
 	for {
 		if err := r.Heartbeat(ctx, r.Ready(ctx)); err != nil && ctx.Err() == nil {
@@ -355,6 +395,27 @@ func ValidateEngineURL(raw string) error {
 	u, err := url.Parse(raw)
 	if err != nil || u.Scheme != "http" || !config.IsLoopback(u.Hostname()) || u.Port() == "" || u.User != nil || u.Path != "" || u.RawQuery != "" || u.Fragment != "" {
 		return errors.New("engine must be an HTTP loopback IP origin with port")
+	}
+	return nil
+}
+
+func allowedEnginePath(method, path string) bool {
+	return method == "POST" && (path == "/v1/chat/completions" || path == "/v1/embeddings" || path == "/apply-template" || path == "/tokenize") || method == "GET" && (path == "/props" || path == "/slots")
+}
+
+func (r *Runner) Drain(ctx context.Context) error {
+	r.draining.Store(true)
+	withdraw, cancel := context.WithTimeout(ctx, 3*time.Second)
+	_ = r.Heartbeat(withdraw, false)
+	cancel()
+	tick := time.NewTicker(10 * time.Millisecond)
+	defer tick.Stop()
+	for r.active.Load() > 0 {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-tick.C:
+		}
 	}
 	return nil
 }

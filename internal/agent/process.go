@@ -38,23 +38,30 @@ func (r *Runner) RunEngine(ctx context.Context, binary, model string, contextSiz
 	if port == "" {
 		return errors.New("engine port and valid context size required")
 	}
+	if err := r.Runtime.VerifyBinary(ctx, binary); err != nil {
+		return err
+	}
 	runtimeArgs, err := r.Runtime.arguments(ctx, n.Capacity, contextSize)
 	if err != nil {
 		return err
 	}
-	for attempt := 0; attempt < 5; attempt++ {
+	for attempt := 0; ctx.Err() == nil; attempt++ {
 		cmd := exec.CommandContext(ctx, binary, append([]string{"--model", model, "--alias", n.UpstreamModel, "--host", u.Hostname(), "--port", port}, runtimeArgs...)...)
 		cmd.Env = RuntimeEnvironment(binary)
 		configureProcess(cmd)
 		cmd.Cancel = func() error { return killProcessTree(cmd) }
 		cmd.WaitDelay = 3 * time.Second
 		// Engine output can contain customer data. Do not forward it into agent logs.
-		err = cmd.Run()
+		err = startProcess(cmd)
+		if err == nil {
+			r.engineStarts.Add(1)
+			err = waitProcess(cmd)
+		}
 		if ctx.Err() != nil {
 			return nil
 		}
-		if attempt == 4 {
-			break
+		if attempt > 4 {
+			attempt = 4
 		}
 		timer := time.NewTimer(time.Duration(1<<attempt) * time.Second)
 		select {
@@ -64,5 +71,5 @@ func (r *Runner) RunEngine(ctx context.Context, binary, model string, contextSiz
 		case <-timer.C:
 		}
 	}
-	return errors.New("engine restart limit reached")
+	return nil
 }

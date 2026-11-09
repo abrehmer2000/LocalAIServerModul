@@ -5,14 +5,18 @@
   "tls_key": "pki/gateway.key",
   "control_ca_cert": "pki/ca.crt",
   "control_ca_key": "pki/ca.key",
-  "timeout_seconds": 300,
+  "timeout_seconds": 900,
   "max_body_bytes": 16777216,
-  "max_output_tokens": 8192,
+  "max_output_tokens": 131072,
   "keys": [
     {
       "id": "first-app",
       "sha256": "REPLACE_WITH_HASH_FROM_KEYGEN"
     }
   ],
-  "nodes": []
+  "nodes": [],
+  "queue_capacity": 8,
+  "queue_wait_seconds": 120,
+  "client_timeout_seconds": 420,
+  "max_concurrent_requests": 64
 }

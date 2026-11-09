@@ -5,6 +5,7 @@ import (
 	"localaiserver/internal/config"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -26,7 +27,7 @@ func TestProzesslogProfilePreservesInstallation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if next.TimeoutSeconds != 300 || next.MaxBodyBytes != 16<<20 || next.MaxOutputTokens != 8192 || next.Nodes[0].Capacity != 1 || next.Database != c.Database || next.Keys[0] != c.Keys[0] {
+	if next.TimeoutSeconds != 900 || next.MaxBodyBytes != 16<<20 || next.MaxOutputTokens != config.DefaultOutputTokens || next.Nodes[0].Capacity != 1 || next.Database != c.Database || !reflect.DeepEqual(next.Keys[0], c.Keys[0]) {
 		t.Fatal("incorrect migration")
 	}
 	actual, _ := os.ReadFile(source)
