@@ -279,5 +279,10 @@ func (c Config) ValidateDeployment() error {
 	if c.TimeoutSeconds < c.MinimumTimeout() || c.MaxBodyBytes < MaxRequestBytes || c.MaxOutputTokens < 8192 || c.QueueSize() < 8 {
 		return errors.New("V2 requires generation budget >= max(600, client + queue), request >=16 MiB and explicit output allowance >=8192; migrate using prozesslog-profile")
 	}
+	for _, n := range c.Nodes {
+		if n.EngineProtocol != "llama.cpp" {
+			return errors.New("static V2 nodes require verified llama.cpp protocol; use prozesslog-profile")
+		}
+	}
 	return nil
 }

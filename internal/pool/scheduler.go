@@ -78,7 +78,7 @@ func (p *Pool) Availability(model string) error {
 		if n.dynamic && !n.authorized() {
 			continue
 		}
-		if n.dynamic && (!time.Now().Before(n.leaseUntil) || !n.ready) {
+		if (n.dynamic || n.Config.EngineProtocol == "llama.cpp") && (!time.Now().Before(n.leaseUntil) || !n.ready) {
 			if n.lifecycle == "loading" {
 				loading = true
 			}
@@ -191,6 +191,15 @@ type Capabilities struct {
 func (p *Pool) Capabilities(model string) Capabilities {
 	c := Capabilities{Model: model, State: "unavailable", UpdatedAt: time.Now().UTC()}
 	p.mu.Lock()
+	nodes := append([]*Node(nil), p.nodes...)
+	p.mu.Unlock()
+	allowed := map[*Node]bool{}
+	for _, n := range nodes {
+		if n.dynamic {
+			allowed[n] = n.authorized()
+		}
+	}
+	p.mu.Lock()
 	for _, n := range p.nodes {
 		if n.Config.Model != model {
 			continue
@@ -201,7 +210,10 @@ func (p *Pool) Capabilities(model string) Capabilities {
 		c.ContextPerSlot = n.Config.ContextSize()
 		c.Revision = n.Config.Revision
 		c.Vision = n.Config.Vision
-		if (!n.dynamic || n.ready && time.Now().Before(n.leaseUntil)) && !time.Now().Before(n.failedUntil) {
+		if n.dynamic && !allowed[n] {
+			continue
+		}
+		if (!n.dynamic || allowed[n]) && (!(n.dynamic || n.Config.EngineProtocol == "llama.cpp") || n.ready && time.Now().Before(n.leaseUntil)) && !time.Now().Before(n.failedUntil) {
 			c.Free += n.Config.Capacity - n.active
 			c.State = "ready"
 		} else if n.lifecycle == "loading" && c.State != "ready" {

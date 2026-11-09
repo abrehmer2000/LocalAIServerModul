@@ -65,13 +65,15 @@ func (s *Service) overview(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	type device struct {
-		ID         string            `json:"id"`
-		Model      string            `json:"model"`
-		Revision   string            `json:"revision"`
-		Connection string            `json:"connection"`
-		Revoked    bool              `json:"revoked"`
-		Report     management.Report `json:"report"`
-		Plan       *management.Plan  `json:"plan,omitempty"`
+		Vision            bool              `json:"vision"`
+		ContextPerRequest int               `json:"context_per_request"`
+		ID                string            `json:"id"`
+		Model             string            `json:"model"`
+		Revision          string            `json:"revision"`
+		Connection        string            `json:"connection"`
+		Revoked           bool              `json:"revoked"`
+		Report            management.Report `json:"report"`
+		Plan              *management.Plan  `json:"plan,omitempty"`
 	}
 	out := make([]device, 0, len(devices))
 	s.mu.Lock()
@@ -82,7 +84,7 @@ func (s *Service) overview(w http.ResponseWriter, r *http.Request) {
 	s.mu.Unlock()
 	for _, d := range devices {
 		p, _ := s.store.Plan(r.Context(), d.Node.ID)
-		out = append(out, device{ID: d.Node.ID, Model: d.Node.Model, Revision: d.Node.Revision, Connection: d.Node.Connection, Revoked: d.Revoked, Report: reports[d.Node.ID], Plan: p})
+		out = append(out, device{Vision: d.Node.Vision, ContextPerRequest: d.Node.ContextPerRequest, ID: d.Node.ID, Model: d.Node.Model, Revision: d.Node.Revision, Connection: d.Node.Connection, Revoked: d.Revoked, Report: reports[d.Node.ID], Plan: p})
 	}
 	e := event.FromContext(r.Context())
 	e.Type = "admin.overview_viewed"

@@ -4,23 +4,28 @@ package event
 import "context"
 
 type Event struct {
-	EngineSHA256     string `json:"engine_sha256,omitempty"`
-	TemplateSHA256   string `json:"template_sha256,omitempty"`
-	ProjectorSHA256  string `json:"projector_sha256,omitempty"`
-	Validation       string `json:"validation,omitempty"`
-	Actor            string `json:"actor,omitempty"`
-	RequestID        string `json:"request_id,omitempty"`
-	Type             string `json:"type"`
-	KeyID            string `json:"key_id,omitempty"`
-	UserID           string `json:"user_id,omitempty"`
-	Model            string `json:"model,omitempty"`
-	Revision         string `json:"revision,omitempty"`
-	NodeID           string `json:"node_id,omitempty"`
-	Status           int    `json:"status,omitempty"`
-	Outcome          string `json:"outcome,omitempty"`
-	DurationMS       int64  `json:"duration_ms,omitempty"`
-	PromptTokens     *int64 `json:"prompt_tokens,omitempty"`
-	CompletionTokens *int64 `json:"completion_tokens,omitempty"`
+	BootID             string `json:"boot_id,omitempty"`
+	EngineStartCounter uint64 `json:"engine_start_counter,omitempty"`
+	ModelSHA256        string `json:"model_sha256,omitempty"`
+	ContextPerSlot     int    `json:"context_per_slot,omitempty"`
+	Slots              int    `json:"slots,omitempty"`
+	EngineSHA256       string `json:"engine_sha256,omitempty"`
+	TemplateSHA256     string `json:"template_sha256,omitempty"`
+	ProjectorSHA256    string `json:"projector_sha256,omitempty"`
+	Validation         string `json:"validation,omitempty"`
+	Actor              string `json:"actor,omitempty"`
+	RequestID          string `json:"request_id,omitempty"`
+	Type               string `json:"type"`
+	KeyID              string `json:"key_id,omitempty"`
+	UserID             string `json:"user_id,omitempty"`
+	Model              string `json:"model,omitempty"`
+	Revision           string `json:"revision,omitempty"`
+	NodeID             string `json:"node_id,omitempty"`
+	Status             int    `json:"status,omitempty"`
+	Outcome            string `json:"outcome,omitempty"`
+	DurationMS         int64  `json:"duration_ms,omitempty"`
+	PromptTokens       *int64 `json:"prompt_tokens,omitempty"`
+	CompletionTokens   *int64 `json:"completion_tokens,omitempty"`
 }
 
 type contextKey struct{}

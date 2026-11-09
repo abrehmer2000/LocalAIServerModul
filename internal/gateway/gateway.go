@@ -60,6 +60,7 @@ func New(c config.Config, a Auditor) (*Gateway, error) {
 	if err != nil {
 		return nil, err
 	}
+	p.StartHealth()
 	var requestLog *logmeta.Writer
 	if c.RequestLog != "" {
 		requestLog, err = logmeta.Open(c.RequestLog, 100_000_000, 7)
@@ -138,6 +139,7 @@ func (g *Gateway) append(e event.Event) error {
 	err := g.audit.Append(ctx, e)
 	if err != nil {
 		g.auditFailed.Store(true)
+		g.BeginDrain()
 	}
 	return err
 }
@@ -349,14 +351,6 @@ func (g *Gateway) chat(w http.ResponseWriter, r *http.Request) {
 		g.reject(w, e, 422, "vision_not_supported", "Model does not support images")
 		return
 	}
-	if err := g.checkContext(r.Context(), v); err != nil {
-		if errors.Is(err, errContextExceeded) {
-			g.reject(w, e, 400, "context_length_exceeded", "Input exceeds model context")
-		} else if r.Context().Err() == nil {
-			g.reject(w, e, 503, "model_unavailable", "Engine preprocessing unavailable")
-		}
-		return
-	}
 	n, release, err := g.pool.WaitAcquire(r.Context(), v.Model, r.Header.Get("X-Priority") == "interactive", g.cfg.QueueSize(), g.cfg.QueueWait())
 	if err != nil {
 		if r.Context().Err() != nil {
@@ -376,6 +370,26 @@ func (g *Gateway) chat(w http.ResponseWriter, r *http.Request) {
 	defer func() { release(failed) }()
 	e.NodeID = n.Config.ID
 	e.Revision = n.Config.Revision
+	if err := g.checkContext(r.Context(), v, n); err != nil {
+		release(false)
+		if r.Context().Err() != nil {
+			e.Type = "inference.failed"
+			e.Outcome = "client_disconnect"
+			_ = g.append(e)
+			return
+		}
+		status, code := 503, "model_unavailable"
+		var upstream *preprocessError
+		if errors.Is(err, errContextExceeded) {
+			status, code = 400, "context_length_exceeded"
+		} else if errors.Is(err, context.DeadlineExceeded) {
+			status, code = 504, "timeout"
+		} else if errors.As(err, &upstream) {
+			status, code = upstream.status, upstream.code
+		}
+		g.reject(w, e, status, code, "Engine input preprocessing failed")
+		return
+	}
 	e.Type = "inference.accepted"
 	if err = g.append(e); err != nil {
 		apiError(w, 503, "model_unavailable", "Audit storage unavailable")
@@ -432,7 +446,7 @@ func (g *Gateway) chat(w http.ResponseWriter, r *http.Request) {
 	defer resp.Body.Close()
 	if resp.StatusCode != 200 {
 		status, code := classifyUpstream(resp)
-		if retryable(code) {
+		if retryable(code) || resp.StatusCode == 429 {
 			w.Header().Set("Retry-After", retryAfter(resp.Header.Get("Retry-After")))
 		}
 		failed = code == "upstream_failure"

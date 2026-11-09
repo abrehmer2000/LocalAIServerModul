@@ -36,8 +36,8 @@ func TestManagedEngineRejectsChangedModelBeforeExecution(t *testing.T) {
 	}
 	h := sha256.Sum256([]byte("expected"))
 	upstream, _ := url.Parse("http://127.0.0.1:8081")
-	r := &Runner{state: State{Identity: control.Identity{Node: config.Node{ModelSHA256: hex.EncodeToString(h[:])}}}, upstream: upstream}
-	if err := r.RunEngine(context.Background(), "must-never-execute", file, 256); err == nil || err.Error() != "model file SHA-256 differs from enrollment grant" {
+	r := &Runner{state: State{Identity: control.Identity{Node: config.Node{Capacity: 1, ModelSHA256: hex.EncodeToString(h[:])}}}, upstream: upstream}
+	if err := r.RunEngine(context.Background(), "must-never-execute", file, 256); err == nil || err.Error() != "hash_mismatch" {
 		t.Fatalf("unexpected result: %v", err)
 	}
 }

@@ -35,12 +35,14 @@ func (s *reasoningStream) filter(raw []byte) ([]byte, error) {
 		s.pending = ""
 		reason := ""
 		if s.phase == 0 {
-			if strings.HasPrefix("<think>", text) && len(text) < len("<think>") {
+			candidate := strings.TrimLeft(text, " \t\r\n")
+			if candidate == "" { // emit harmless whitespace, keep looking for the first actual token
+			} else if strings.HasPrefix("<think>", candidate) && len(candidate) < len("<think>") {
 				s.pending = text
 				text = ""
-			} else if strings.HasPrefix(text, "<think>") {
+			} else if strings.HasPrefix(candidate, "<think>") {
 				s.phase = 1
-				text = strings.TrimPrefix(text, "<think>")
+				text = strings.TrimPrefix(candidate, "<think>")
 			} else {
 				s.phase = 2
 			}

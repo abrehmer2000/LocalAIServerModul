@@ -98,3 +98,21 @@ func TestDynamicHeartbeatLeaseAndRevocation(t *testing.T) {
 		t.Fatal("revoked node still routed")
 	}
 }
+
+func TestEngineStartsSurviveAgentSessionCounterReset(t *testing.T) {
+	p, err := New([]config.Node{{ID: "n", Model: "m", Capacity: 1}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer p.Close()
+	p.SetEngineSession("n", "boot1", 3)
+	p.SetEngineSession("n", "boot1", 3)
+	p.SetEngineSession("n", "boot1", 2)
+	p.SetEngineSession("n", "boot2", 1)
+	if boot, count := p.EngineSession("n"); boot != "boot2" || count != 1 {
+		t.Fatalf("session=%s/%d", boot, count)
+	}
+	if p.nodes[0].engineStarts != 4 {
+		t.Fatalf("starts=%d", p.nodes[0].engineStarts)
+	}
+}

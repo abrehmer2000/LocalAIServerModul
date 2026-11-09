@@ -42,7 +42,9 @@ func prepareCompletion(data []byte, request chatRequest, model, id string, e *ev
 		return nil, errors.New("engine finish reason required")
 	}
 	// The supported legacy wrapper occurs at the start, never in ordinary quotes.
-	if strings.HasPrefix(content, "<think>") {
+	wrapped := strings.TrimLeft(content, " \t\r\n")
+	if strings.HasPrefix(wrapped, "<think>") {
+		content = wrapped
 		if end := strings.Index(content, "</think>"); end >= 0 {
 			msg["reasoning_content"], _ = json.Marshal(content[len("<think>"):end])
 			content = content[end+len("</think>"):]

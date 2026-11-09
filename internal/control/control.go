@@ -21,6 +21,7 @@ import (
 	"net/url"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -40,6 +41,9 @@ type HeartbeatResponse struct {
 	Plan  *management.Plan `json:"plan,omitempty"`
 }
 type Heartbeat struct {
+	BootID          string             `json:"boot_id,omitempty"`
+	ModelSHA256     string             `json:"model_sha256,omitempty"`
+	ContextPerSlot  int                `json:"context_per_slot,omitempty"`
 	EngineStarts    uint64             `json:"engine_starts,omitempty"`
 	EngineSHA256    string             `json:"engine_sha256,omitempty"`
 	TemplateSHA256  string             `json:"template_sha256,omitempty"`
@@ -48,17 +52,18 @@ type Heartbeat struct {
 	Ready           bool               `json:"ready"`
 }
 type Service struct {
-	config      config.Config
-	gatewayCert *x509.Certificate
-	reports     map[string]management.Report
-	broker      *tunnel.Broker
-	store       *audit.Store
-	pool        *pool.Pool
-	authority   *pki.Authority
-	clientTLS   *tls.Config
-	mu          sync.Mutex
-	states      map[string]bool
-	seen        map[string]time.Time
+	authorizations sync.Map
+	config         config.Config
+	gatewayCert    *x509.Certificate
+	reports        map[string]management.Report
+	broker         *tunnel.Broker
+	store          *audit.Store
+	pool           *pool.Pool
+	authority      *pki.Authority
+	clientTLS      *tls.Config
+	mu             sync.Mutex
+	states         map[string]bool
+	seen           map[string]time.Time
 }
 
 func Fingerprint(der []byte) string { h := sha256.Sum256(der); return hex.EncodeToString(h[:]) }
@@ -113,18 +118,12 @@ func (s *Service) add(n config.Node) error {
 		}
 		return nil
 	}
-	err := s.pool.AddDynamic(n, tlsConfig, func() bool {
-		devices, err := s.store.Devices(context.Background())
-		if err != nil {
-			return false
-		}
-		for _, d := range devices {
-			if d.Node.ID == n.ID {
-				return !d.Revoked
-			}
-		}
-		return false
-	})
+	allowed := &atomic.Bool{}
+	allowed.Store(true)
+	s.authorizations.Store(n.ID, allowed)
+	s.store.OnDeviceRevoked(n.ID, func() { allowed.Store(false) })
+	err := s.pool.AddDynamic(n, tlsConfig, allowed.Load)
+
 	if err == nil && n.Connection == "outbound" {
 		s.pool.SetTransport(n.ID, s.broker.Transport(n.ID))
 	}
@@ -228,6 +227,8 @@ func (s *Service) heartbeat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if h.Report != nil {
+		h.ModelSHA256 = h.Report.SHA256
+		h.ContextPerSlot = h.Report.ContextPerSlot
 		h.EngineStarts = h.Report.Restarts
 		h.EngineSHA256 = h.Report.EngineSHA256
 		h.TemplateSHA256 = h.Report.TemplateSHA256
@@ -245,20 +246,39 @@ func (s *Service) heartbeat(w http.ResponseWriter, r *http.Request) {
 		}
 		s.reports[n.ID] = *h.Report
 	}
-	if !validArtifactHash(h.EngineSHA256) || !validArtifactHash(h.TemplateSHA256) || !validArtifactHash(h.ProjectorSHA256) {
+	if !validArtifactHash(h.ModelSHA256) || !validArtifactHash(h.EngineSHA256) || !validArtifactHash(h.TemplateSHA256) || !validArtifactHash(h.ProjectorSHA256) {
 		deny(w, 400)
 		return
 	}
 	if n.EngineSHA256 != "" && h.EngineSHA256 != n.EngineSHA256 || n.TemplateSHA256 != "" && h.TemplateSHA256 != n.TemplateSHA256 {
 		h.Ready = false
 	}
-	if h.EngineStarts > s.pool.EngineStarts(n.ID) {
-		if s.store.Append(r.Context(), audit.Event{Type: "engine.started", NodeID: n.ID, Model: n.Model, Revision: n.Revision, EngineSHA256: h.EngineSHA256, TemplateSHA256: h.TemplateSHA256, ProjectorSHA256: h.ProjectorSHA256}) != nil {
-			deny(w, 503)
+	if h.EngineStarts > 0 {
+		if len(h.BootID) != 32 {
+			deny(w, 400)
 			return
 		}
-		s.pool.SetEngineStarts(n.ID, h.EngineStarts)
+		if _, err := hex.DecodeString(h.BootID); err != nil {
+			deny(w, 400)
+			return
+		}
+		previousBoot, previousCount := s.pool.EngineSession(n.ID)
+		if previousBoot != h.BootID {
+			previousCount = 0
+		}
+		for count := previousCount + 1; count <= h.EngineStarts; count++ {
+			if h.EngineStarts-previousCount > 1024 {
+				deny(w, 400)
+				return
+			}
+			if s.store.Append(r.Context(), audit.Event{Type: "engine.started", BootID: h.BootID, EngineStartCounter: count, NodeID: n.ID, Model: n.Model, Revision: n.Revision, ModelSHA256: h.ModelSHA256, ContextPerSlot: h.ContextPerSlot, Slots: n.Capacity, EngineSHA256: h.EngineSHA256, TemplateSHA256: h.TemplateSHA256, ProjectorSHA256: h.ProjectorSHA256}) != nil {
+				deny(w, 503)
+				return
+			}
+			s.pool.SetEngineSession(n.ID, h.BootID, count)
+		}
 	}
+
 	if n.Connection == "outbound" {
 		h.Ready = h.Ready && s.broker.Online(n.ID)
 	}
@@ -315,13 +335,25 @@ func (s *Service) renew(w http.ResponseWriter, r *http.Request) {
 
 // Monitor records lease loss; routing independently enforces the deadline on every selection.
 func (s *Service) Monitor(ctx context.Context) {
-	tick := time.NewTicker(5 * time.Second)
+	tick := time.NewTicker(500 * time.Millisecond)
 	defer tick.Stop()
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case now := <-tick.C:
+			scan, cancelScan := context.WithTimeout(ctx, time.Second)
+			devices, err := s.store.Devices(scan)
+			cancelScan()
+			if err == nil {
+				for _, device := range devices {
+					if device.Revoked {
+						if allowed, ok := s.authorizations.Load(device.Node.ID); ok {
+							allowed.(*atomic.Bool).Store(false)
+						}
+					}
+				}
+			}
 			s.mu.Lock()
 			for id, last := range s.seen {
 				if now.Sub(last) > Lease && s.states[id] {

@@ -84,3 +84,14 @@ func (o EngineOptions) VerifyBinary(ctx context.Context, binary string) error {
 	}
 	return nil
 }
+
+func (o EngineOptions) verifyArtifacts(ctx context.Context, binary, model, modelHash string, capacity, totalContext int) ([]string, error) {
+	actual, err := fileHash(ctx, model)
+	if err != nil || actual != modelHash {
+		return nil, errors.New("hash_mismatch")
+	}
+	if err := o.VerifyBinary(ctx, binary); err != nil {
+		return nil, err
+	}
+	return o.arguments(ctx, capacity, totalContext)
+}

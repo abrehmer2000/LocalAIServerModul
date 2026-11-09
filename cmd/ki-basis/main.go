@@ -56,7 +56,7 @@ func run() error {
 	case "agent-ui":
 		return agentUICommand(os.Args[2:])
 	case "--help", "-h", "help":
-		fmt.Fprintln(os.Stdout, "KI-Basis: init-central | prozesslog-profile | serve | quickstart | agent-ui | agent-bootstrap | restore | agent join|run | keygen | audit-verify | audit-export | init-tls | join-token | node-list | node-revoke | admin-key")
+		fmt.Fprintln(os.Stdout, "KI-Basis: inspect | service install|run | audit-checkpoint | init-central | prozesslog-profile | serve | quickstart | agent-ui | agent-bootstrap | restore | agent join|run | keygen | audit-verify | audit-export | init-tls | join-token | node-list | node-revoke | admin-key")
 		return nil
 	case "quickstart":
 		return quickstartCommand(os.Args[2:])
@@ -137,7 +137,7 @@ func run() error {
 		mux.Handle("/internal/", controller.Handler())
 		mux.Handle("/admin/", g.Admin(controller.AdminHandler()))
 		mux.Handle("/", g.Handler())
-		server.Handler = gateway.StrictPaths(mux)
+		server.Handler = g.GuardPaths(mux)
 		server.TLSConfig = controller.TLSConfig()
 		defer controller.Close()
 	}

@@ -37,7 +37,7 @@ func (r *Runner) verifyProperties(ctx context.Context, n config.Node) bool {
 			Context int `json:"n_ctx"`
 		} `json:"default_generation_settings"`
 	}
-	if json.NewDecoder(io.LimitReader(response.Body, 1<<20)).Decode(&props) != nil || props.Slots != n.Capacity || props.Generation.Context < n.ContextSize() || props.Modalities.Vision != n.Vision {
+	if json.NewDecoder(io.LimitReader(response.Body, 1<<20)).Decode(&props) != nil || props.Slots != n.Capacity || props.Generation.Context != n.ContextSize() || props.Modalities.Vision != n.Vision {
 		return false
 	}
 	hash := sha256.Sum256([]byte(props.Template))

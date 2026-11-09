@@ -31,15 +31,19 @@ func engineJSON(ctx context.Context, n *pool.Node, path string, in, out any) err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != 200 {
-		return errors.New("engine preprocessing failed")
+		status, code := classifyUpstream(resp)
+		return &preprocessError{status: status, code: code}
 	}
 	return json.NewDecoder(io.LimitReader(resp.Body, 64<<20)).Decode(out)
 }
-func (g *Gateway) checkContext(ctx context.Context, v chatRequest) error {
-	n := g.pool.ProbeNode(v.Model)
-	if n == nil {
-		return nil
-	} // Scheduler reports the lifecycle cause.
+
+type preprocessError struct {
+	status int
+	code   string
+}
+
+func (e *preprocessError) Error() string { return e.code }
+func (g *Gateway) checkContext(ctx context.Context, v chatRequest, n *pool.Node) error {
 	if n.Config.EngineProtocol != "llama.cpp" || hasImage(v.Messages) {
 		return nil
 	}

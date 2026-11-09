@@ -99,7 +99,7 @@ func validateCompletion(data []byte, f *responseFormat) error {
 func upstreamError(status int) (int, string) {
 	switch status {
 	case 429:
-		return 429, "model_busy"
+		return 429, "upstream_failure"
 	case 503:
 		return 503, "model_unavailable"
 	case 400, 413, 415, 422:

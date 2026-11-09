@@ -29,8 +29,10 @@ type Record struct {
 	Hash     string `json:"hash"`
 }
 type Store struct {
-	db *sql.DB
-	mu sync.Mutex
+	revocationMu        sync.Mutex
+	revocationListeners map[string][]func()
+	db                  *sql.DB
+	mu                  sync.Mutex
 }
 
 func Open(path string) (*Store, error) {

@@ -4,8 +4,10 @@ package agent
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -158,10 +160,12 @@ func validate(s State) (tls.Certificate, error) {
 }
 
 type Runner struct {
+	bootID           string
 	observedTemplate string
 	observedContext  int
 	observedVision   bool
 	engineStarts     atomic.Uint64
+	actualContext    atomic.Int64
 	draining         atomic.Bool
 	active           atomic.Int64
 	Runtime          EngineOptions
@@ -187,7 +191,11 @@ func New(path, engineURL string) (*Runner, error) {
 		return nil, err
 	}
 	u, _ := url.Parse(engineURL)
-	return &Runner{state: s, pair: pair, path: path, upstream: u, transport: &http.Transport{Proxy: nil, DialContext: (&net.Dialer{Timeout: 3 * time.Second}).DialContext, MaxConnsPerHost: s.Identity.Node.Capacity + 2, IdleConnTimeout: 30 * time.Second}}, nil
+	var boot [16]byte
+	if _, err = rand.Read(boot[:]); err != nil {
+		return nil, err
+	}
+	return &Runner{bootID: hex.EncodeToString(boot[:]), state: s, pair: pair, path: path, upstream: u, transport: &http.Transport{Proxy: nil, DialContext: (&net.Dialer{Timeout: 3 * time.Second}).DialContext, MaxConnsPerHost: s.Identity.Node.Capacity + 2, IdleConnTimeout: 30 * time.Second}}, nil
 }
 func (r *Runner) Close() {
 	if r.Manager != nil {
@@ -314,7 +322,7 @@ func (r *Runner) Heartbeat(ctx context.Context, ready bool) error {
 	if observedTemplate == "" {
 		observedTemplate = r.Runtime.TemplateSHA256
 	}
-	heartbeat := control.Heartbeat{Ready: ready && !r.draining.Load(), EngineStarts: r.engineStarts.Load(), EngineSHA256: r.Runtime.EngineSHA256, TemplateSHA256: observedTemplate, ProjectorSHA256: r.Runtime.ProjectorSHA256}
+	heartbeat := control.Heartbeat{BootID: r.bootID, ModelSHA256: state.Identity.Node.ModelSHA256, ContextPerSlot: int(r.actualContext.Load()), Ready: ready && !r.draining.Load(), EngineStarts: r.engineStarts.Load(), EngineSHA256: r.Runtime.EngineSHA256, TemplateSHA256: observedTemplate, ProjectorSHA256: r.Runtime.ProjectorSHA256}
 	if r.Manager != nil {
 		report := r.Manager.Report()
 		if observedTemplate != "" {

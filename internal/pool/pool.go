@@ -2,6 +2,7 @@
 package pool
 
 import (
+	"context"
 	"crypto/tls"
 	"crypto/x509"
 	"errors"
@@ -15,27 +16,32 @@ import (
 )
 
 type Node struct {
-	engineStarts uint64
-	Config       config.Node
-	Client       *http.Client
-	active       int
-	failedUntil  time.Time
-	meanDuration time.Duration
-	oldest       time.Time
-	lifecycle    string
-	dynamic      bool
-	ready        bool
-	leaseUntil   time.Time
-	authorized   func() bool
+	engineBoot         string
+	engineSessionCount uint64
+	probeClient        *http.Client
+	engineStarts       uint64
+	Config             config.Node
+	Client             *http.Client
+	active             int
+	failedUntil        time.Time
+	meanDuration       time.Duration
+	oldest             time.Time
+	lifecycle          string
+	dynamic            bool
+	ready              bool
+	leaseUntil         time.Time
+	authorized         func() bool
 }
 type Pool struct {
-	mu       sync.Mutex
-	nodes    []*Node
-	cursor   int
-	waitMu   sync.Mutex
-	waiters  []*waiter
-	changed  chan struct{}
-	draining bool
+	healthCancel context.CancelFunc
+	healthWG     sync.WaitGroup
+	mu           sync.Mutex
+	nodes        []*Node
+	cursor       int
+	waitMu       sync.Mutex
+	waiters      []*waiter
+	changed      chan struct{}
+	draining     bool
 }
 
 func New(configs []config.Node) (*Pool, error) {
@@ -109,7 +115,7 @@ func (p *Pool) acquire(model, id string) (*Node, func(bool)) {
 	for i := 0; i < len(p.nodes); i++ {
 		j := (p.cursor + i) % len(p.nodes)
 		n := p.nodes[j]
-		if (id == "" && n.Config.Model != model) || (id != "" && n.Config.ID != id) || (n.dynamic && (!n.ready || !time.Now().Before(n.leaseUntil) || !allowed[n])) || n.active >= n.Config.Capacity || time.Now().Before(n.failedUntil) {
+		if (id == "" && n.Config.Model != model) || (id != "" && n.Config.ID != id) || ((n.dynamic || n.Config.EngineProtocol == "llama.cpp") && (!n.ready || !time.Now().Before(n.leaseUntil))) || (n.dynamic && !allowed[n]) || n.active >= n.Config.Capacity || time.Now().Before(n.failedUntil) {
 			continue
 		}
 		if best < 0 || n.active*p.nodes[best].Config.Capacity < p.nodes[best].active*n.Config.Capacity {
@@ -151,10 +157,17 @@ func (n *Node) Endpoint() string {
 	return strings.TrimRight(n.Config.URL, "/") + "/v1/chat/completions"
 }
 func (p *Pool) Close() {
+	if p.healthCancel != nil {
+		p.healthCancel()
+		p.healthWG.Wait()
+	}
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	for _, n := range p.nodes {
 		n.Client.CloseIdleConnections()
+		if n.probeClient != nil {
+			n.probeClient.CloseIdleConnections()
+		}
 	}
 }
 
@@ -224,7 +237,7 @@ func (p *Pool) Snapshot() []Status {
 	nodes := append([]*Node(nil), p.nodes...)
 	for _, n := range nodes {
 		state := "configured"
-		if n.dynamic {
+		if n.dynamic || n.Config.EngineProtocol == "llama.cpp" {
 			state = "unavailable"
 			if n.ready && time.Now().Before(n.leaseUntil) && !time.Now().Before(n.failedUntil) {
 				state = "ready"
@@ -290,3 +303,31 @@ func (p *Pool) SetEngineStarts(id string, count uint64) {
 }
 
 func (n *Node) Origin() string { return strings.TrimRight(n.Config.URL, "/") }
+
+func (p *Pool) EngineSession(id string) (string, uint64) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	for _, n := range p.nodes {
+		if n.Config.ID == id {
+			return n.engineBoot, n.engineSessionCount
+		}
+	}
+	return "", 0
+}
+func (p *Pool) SetEngineSession(id, boot string, count uint64) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	for _, n := range p.nodes {
+		if n.Config.ID == id {
+			if n.engineBoot != boot {
+				n.engineBoot = boot
+				n.engineSessionCount = 0
+			}
+			if count > n.engineSessionCount {
+				n.engineStarts += count - n.engineSessionCount
+				n.engineSessionCount = count
+			}
+			return
+		}
+	}
+}

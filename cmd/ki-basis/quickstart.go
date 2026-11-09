@@ -145,7 +145,7 @@ func quickstartCommand(args []string) error {
 	mux.Handle("/internal/", controller.Handler())
 	mux.Handle("/admin/", g.Admin(controller.AdminHandler()))
 	mux.Handle("/", g.Handler())
-	backend := &http.Server{Handler: gateway.StrictPaths(mux), TLSConfig: controller.TLSConfig(), ReadHeaderTimeout: 10 * time.Second, ReadTimeout: config.UploadTimeout, IdleTimeout: 30 * time.Second, MaxHeaderBytes: 16 << 10}
+	backend := &http.Server{Handler: g.GuardPaths(mux), TLSConfig: controller.TLSConfig(), ReadHeaderTimeout: 10 * time.Second, ReadTimeout: config.UploadTimeout, IdleTimeout: 30 * time.Second, MaxHeaderBytes: 16 << 10}
 	preview, err := browserHandler("https://"+c.Listen, c.ControlCACert, true, c)
 	if err != nil {
 		return err

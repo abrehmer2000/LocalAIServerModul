@@ -94,7 +94,8 @@ ist dabei bewusst false: tatsächliche Engineflags/Hostzustände separat erfasse
 5. Neue Einladungen/Nodeprofile können `vision`, `context_per_request`,
    `engine_protocol`, `engine_sha256`, `template_sha256` und Bodygrenze festlegen.
    Replikate desselben Alias müssen gleiche Revision/Fähigkeiten haben.
-   Llama-Agenten prüfen `/props` vor Bereitschaft gegen Slotzahl, Kontext und
+   Statische Llama-Backends werden über eine eigene Healthverbindung geprüft, die
+   keinen Inferenzplatz belegt. Llama-Agenten prüfen `/props` vor Bereitschaft gegen Slotzahl, Kontext und
    Vision. Die Templateprüfsumme wird im Startaudit mitgeführt.
 
 Die Runtime verwendet `--jinja --reasoning-format deepseek --cache-ram 0
@@ -229,3 +230,23 @@ einheitlicher Dimension/Indexfolge. Derselbe TLS-/Schlüssel-/Audit-/Queuepfad,
 kein Wechsel auf das Chatmodell. Ein passend gestarteter externer llama.cpp-
 Embeddingserver kann statisch oder über den Agentproxy angebunden werden.
 Der bisherige lokale Prozesslog-Embeddingpfad muss dafür nicht geändert werden.
+
+## Grenzen der aktuellen Abnahme
+
+Der Einrichtungsdialog muss bei bildfähigen Modellen „Bilder verarbeiten“ setzen;
+auf dem Agenten ist der passende, gepinnte Projektor erforderlich. Replikate
+übernehmen Bildfähigkeit und Kontext des bestehenden Profils. Ein Textprofil
+weist Bilder vor der Modellbelegung zurück.
+
+`model_busy` bezeichnet belegte Modellplätze oder die dazugehörige volle/abgelaufene
+Warteschlange. Ein globales HTTP-Anfragelimit meldet `model_unavailable`; ein
+unbekanntes Upstream-429 bleibt ein technischer Fehler (`upstream_failure`).
+Prozesslog unterscheidet diese Fälle auch bei ausgeschöpften Wiederholungen.
+
+Statisch angebundene, extern verwaltete Engines liefern über ihre HTTP-API keinen
+vertrauenswürdigen Nachweis der tatsächlich gestarteten Binär-/Modelldateien.
+Die laufende Prüfung von Health, Modellalias, Kontext, Slots und Vision ersetzt
+diesen Nachweis nicht. Dieses Profil ist deshalb für N23 noch nicht abgenommen.
+Auch die funktionierende echte Bilderkennung und die Slotfreigabe nach Abbruch
+müssen auf der Zielengine gemessen werden; synthetische HTTP-Tests belegen nur
+den Transport und die Gatewaylogik.

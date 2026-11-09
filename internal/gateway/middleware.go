@@ -18,10 +18,14 @@ var requestPattern = regexp.MustCompile(`^[A-Za-z0-9-]{1,32}$`)
 
 // StrictPaths must wrap the outermost ServeMux: ServeMux redirects before
 // dispatching handlers, including when it is only used for management routes.
-func StrictPaths(next http.Handler) http.Handler {
+func StrictPaths(next http.Handler, rejects ...func(http.ResponseWriter, *http.Request)) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if path.Clean(r.URL.Path) != r.URL.Path || strings.Contains(r.URL.EscapedPath(), "%") {
-			apiError(w, 400, "invalid_request", "Non-canonical path")
+			if len(rejects) > 0 {
+				rejects[0](w, r)
+			} else {
+				apiError(w, 400, "invalid_request", "Non-canonical path")
+			}
 			return
 		}
 		next.ServeHTTP(w, r)
@@ -98,7 +102,7 @@ func (g *Gateway) keyAdmin(w http.ResponseWriter, r *http.Request) {
 }
 
 func (g *Gateway) ingress(next http.Handler) http.Handler {
-	return StrictPaths(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	return g.GuardPaths(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/healthz" {
 			next.ServeHTTP(w, r)
 			return
@@ -107,10 +111,21 @@ func (g *Gateway) ingress(next http.Handler) http.Handler {
 		case g.ingressSlots <- struct{}{}:
 			defer func() { <-g.ingressSlots }()
 		default:
-			w.Header().Set("Retry-After", "1")
-			apiError(w, 429, "model_busy", "Request concurrency limit reached")
+			g.EarlyReject(w, r, 503, "model_unavailable", "Gateway request concurrency limit reached")
 			return
 		}
 		next.ServeHTTP(w, r)
 	}))
+}
+
+func (g *Gateway) EarlyReject(w http.ResponseWriter, r *http.Request, status int, code, message string) {
+	e, ok := g.identify(w, r)
+	if ok {
+		g.reject(w, e, status, code, message)
+	}
+}
+func (g *Gateway) GuardPaths(next http.Handler) http.Handler {
+	return StrictPaths(next, func(w http.ResponseWriter, r *http.Request) {
+		g.EarlyReject(w, r, 400, "invalid_request", "Non-canonical path")
+	})
 }

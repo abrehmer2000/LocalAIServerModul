@@ -1,14 +1,18 @@
 package agent
 
 import (
+	"errors"
 	"golang.org/x/sys/windows"
 	"os/exec"
 	"sync"
+	"syscall"
 	"unsafe"
 )
 
-var processJobs sync.Map             // *exec.Cmd -> owned Job Object handle
-func configureProcess(cmd *exec.Cmd) {}
+var processJobs sync.Map // *exec.Cmd -> owned Job Object handle
+func configureProcess(cmd *exec.Cmd) {
+	cmd.SysProcAttr = &syscall.SysProcAttr{CreationFlags: windows.CREATE_SUSPENDED, HideWindow: true}
+}
 func startProcess(cmd *exec.Cmd) error {
 	job, err := windows.CreateJobObject(nil, nil)
 	if err != nil {
@@ -36,6 +40,14 @@ func startProcess(cmd *exec.Cmd) error {
 		return err
 	}
 	processJobs.Store(cmd, job)
+	// Attach the suspended process before any code can spawn descendants.
+	if err = resumeOwnedProcess(uint32(cmd.Process.Pid)); err != nil {
+		_ = windows.TerminateJobObject(job, 1)
+		_ = cmd.Wait()
+		processJobs.Delete(cmd)
+		windows.CloseHandle(job)
+		return err
+	}
 	return nil
 }
 func waitProcess(cmd *exec.Cmd) error {
@@ -53,4 +65,27 @@ func killProcessTree(cmd *exec.Cmd) error {
 		return cmd.Process.Kill()
 	}
 	return nil
+}
+
+func resumeOwnedProcess(pid uint32) error {
+	snapshot, err := windows.CreateToolhelp32Snapshot(windows.TH32CS_SNAPTHREAD, 0)
+	if err != nil {
+		return err
+	}
+	defer windows.CloseHandle(snapshot)
+	entry := windows.ThreadEntry32{}
+	entry.Size = uint32(unsafe.Sizeof(entry))
+	for err = windows.Thread32First(snapshot, &entry); err == nil; err = windows.Thread32Next(snapshot, &entry) {
+		if entry.OwnerProcessID != pid {
+			continue
+		}
+		thread, err := windows.OpenThread(windows.THREAD_SUSPEND_RESUME, false, entry.ThreadID)
+		if err != nil {
+			return err
+		}
+		_, err = windows.ResumeThread(thread)
+		windows.CloseHandle(thread)
+		return err
+	}
+	return errors.New("owned engine primary thread unavailable")
 }

@@ -246,6 +246,9 @@
                   value="catalog-gemma4-q4_0-v1"
                   required
                 />
+                <label><input id="server-vision" type="checkbox" /> Bilder verarbeiten (bildfähiges Modell mit passendem Projektor erforderlich)</label>
+                <label for="server-context">Kontext pro Anfrage (Tokens)</label>
+                <input id="server-context" type="number" value="32768" min="32768" required />
                 <label for="server-capacity"
                   >Gleichzeitige Anfragen auf diesem Server</label
                 ><input

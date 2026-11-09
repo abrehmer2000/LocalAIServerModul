@@ -2,12 +2,8 @@ package agent
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
-	"io"
 	"net/url"
-	"os"
 	"os/exec"
 	"time"
 )
@@ -20,32 +16,27 @@ func (r *Runner) RunEngine(ctx context.Context, binary, model string, contextSiz
 	if n.ModelSHA256 == "" {
 		return errors.New("managed engine requires model_sha256 in its join grant")
 	}
-	f, err := os.Open(model)
-	if err != nil {
-		return err
-	}
-	h := sha256.New()
-	_, err = io.Copy(h, f)
-	f.Close()
-	if err != nil {
-		return err
-	}
-	if hex.EncodeToString(h.Sum(nil)) != n.ModelSHA256 {
-		return errors.New("model file SHA-256 differs from enrollment grant")
-	}
 	u, _ := url.Parse(r.upstream.String())
 	port := u.Port()
 	if port == "" {
 		return errors.New("engine port and valid context size required")
 	}
-	if err := r.Runtime.VerifyBinary(ctx, binary); err != nil {
-		return err
+	contextPerSlot := r.Runtime.ContextPerRequest
+	if contextPerSlot == 0 {
+		contextPerSlot = 32768
 	}
-	runtimeArgs, err := r.Runtime.arguments(ctx, n.Capacity, contextSize)
-	if err != nil {
-		return err
+	if n.Capacity < 1 {
+		return errors.New("invalid engine capacity")
 	}
+	if contextSize != 0 {
+		contextPerSlot = contextSize / n.Capacity
+	}
+	r.actualContext.Store(int64(contextPerSlot))
 	for attempt := 0; ctx.Err() == nil; attempt++ {
+		runtimeArgs, err := r.Runtime.verifyArtifacts(ctx, binary, model, n.ModelSHA256, n.Capacity, contextSize)
+		if err != nil {
+			return err
+		}
 		cmd := exec.CommandContext(ctx, binary, append([]string{"--model", model, "--alias", n.UpstreamModel, "--host", u.Hostname(), "--port", port}, runtimeArgs...)...)
 		cmd.Env = RuntimeEnvironment(binary)
 		configureProcess(cmd)
