@@ -188,7 +188,7 @@ func TestBackendStatusAndRetryAfter(t *testing.T) {
 			}
 			defer resp.Body.Close()
 			want := status
-			if status == 500 || status == 401 || status == 302 {
+			if status == 429 || status == 500 || status == 401 || status == 302 {
 				want = 502
 			}
 			if resp.StatusCode != want {

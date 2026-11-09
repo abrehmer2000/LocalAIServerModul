@@ -13,7 +13,10 @@ func TestOnlyExplicitUpstreamBusyIsModelBusy(t *testing.T) {
 		{`{"error":{"code":"model_busy"}}`, "model_busy"},
 		{`{"error":{"message":"rate limit"}}`, "upstream_failure"},
 	} {
-		_, code := classifyUpstream(&http.Response{StatusCode: 429, Body: io.NopCloser(strings.NewReader(tc.body))})
+		status, code := classifyUpstream(&http.Response{StatusCode: 429, Body: io.NopCloser(strings.NewReader(tc.body))})
+		if code == "upstream_failure" && status != 502 {
+			t.Fatalf("status=%d want 502", status)
+		}
 		if code != tc.want {
 			t.Fatalf("code=%s want %s", code, tc.want)
 		}
