@@ -262,7 +262,7 @@ func TestOutboundLongImageRequestAndRetryAfter(t *testing.T) {
 		if i == 0 && (resp.StatusCode != 200 || !bytes.Contains(data, []byte(`"content":"ok"`))) {
 			t.Fatalf("delayed response %d: %s", resp.StatusCode, data)
 		}
-		if i == 1 && (resp.StatusCode != 429 || resp.Header.Get("Retry-After") != "17") {
+		if i == 1 && (resp.StatusCode != 502 || resp.Header.Get("Retry-After") != "17" || !bytes.Contains(data, []byte(`"code":"upstream_failure"`))) {
 			t.Fatalf("lost overload status/header: %d %s", resp.StatusCode, resp.Header.Get("Retry-After"))
 		}
 	}
