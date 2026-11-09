@@ -14,3 +14,6 @@ func killProcessTree(cmd *exec.Cmd) error {
 	}
 	return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
 }
+
+func startProcess(cmd *exec.Cmd) error { return cmd.Start() }
+func waitProcess(cmd *exec.Cmd) error  { return cmd.Wait() }

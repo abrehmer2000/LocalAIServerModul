@@ -56,6 +56,9 @@ func inspectSetup(ctx context.Context, settings agentSettings, bundle *control.B
 			out.Ready = false
 		}
 	}
+	if err := settings.Runtime.Validate(); err != nil {
+		add("runtime_options", "error", "Kontextgröße oder Vision-Projektor-Einstellungen sind ungültig.")
+	}
 	add("system", "ok", runtime.GOOS+" / "+runtime.GOARCH)
 	if settings.Binary == "" || !filepath.IsAbs(settings.Binary) {
 		add("runtime", "error", "Keine Laufzeit gefunden. llama.cpp-Paket importieren oder unter Erweitert auswählen.")

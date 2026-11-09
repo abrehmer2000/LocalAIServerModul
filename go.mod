@@ -3,6 +3,7 @@ module localaiserver
 go 1.23.0
 
 require (
+	github.com/santhosh-tekuri/jsonschema/v5 v5.3.1
 	golang.org/x/sys v0.22.0
 	modernc.org/sqlite v1.34.5
 )

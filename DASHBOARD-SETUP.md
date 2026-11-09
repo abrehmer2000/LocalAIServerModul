@@ -22,6 +22,11 @@ ist noch nicht Bestandteil dieses kleinen Katalogs.
 
 ## Zentrale starten
 
+Für getrennte Windows-Server mit Prozesslog siehe [Zwei-Server-Test](ZWEI-SERVER-TEST.md).
+Dort erzeugt `init-central` eine neue erreichbare HTTPS-Zentrale; `quickstart` bleibt
+der lokale Vorschauablauf.
+
+
 Neue lokale Installation:
 
 ```sh
@@ -104,7 +109,8 @@ TLS muss bis zur Zentrale durchgereicht werden.
 - Ein Modellauftrag bleibt gespeichert, wenn der Agent vorübergehend offline ist.
   Nach einem Neustart wird der gewünschte Zustand erneut hergestellt.
 - „Herunterladen und starten“ verwendet eine vorhandene passende Datei wieder.
-  Standard: 2048 Kontext-Tokens und Kapazität 1; CPU ist explizit auswählbar.
+  Standard: 32768 Kontext-Tokens je Slot; Kapazität gemäß Anmeldung (zunächst 1).
+  Kontext und optionaler Vision-Projektor sind in den Agent-Einstellungen konfigurierbar; CPU ist explizit auswählbar.
 - GPU-Treiber und die passende CPU-/CUDA-/Vulkan-Laufzeit müssen bereits installiert
   sein. Diese Version installiert keine fremden ausführbaren Dateien oder Treiber.
 - „Stoppen“ beendet nur einen vom Agenten gestarteten Prozess und bricht einen

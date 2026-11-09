@@ -2,14 +2,9 @@ package agent
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
-	"io"
 	"net/url"
-	"os"
 	"os/exec"
-	"strconv"
 	"time"
 )
 
@@ -21,37 +16,43 @@ func (r *Runner) RunEngine(ctx context.Context, binary, model string, contextSiz
 	if n.ModelSHA256 == "" {
 		return errors.New("managed engine requires model_sha256 in its join grant")
 	}
-	f, err := os.Open(model)
-	if err != nil {
-		return err
-	}
-	h := sha256.New()
-	_, err = io.Copy(h, f)
-	f.Close()
-	if err != nil {
-		return err
-	}
-	if hex.EncodeToString(h.Sum(nil)) != n.ModelSHA256 {
-		return errors.New("model file SHA-256 differs from enrollment grant")
-	}
 	u, _ := url.Parse(r.upstream.String())
 	port := u.Port()
-	if port == "" || contextSize < 128 || contextSize > 131072 {
+	if port == "" {
 		return errors.New("engine port and valid context size required")
 	}
-	for attempt := 0; attempt < 5; attempt++ {
-		cmd := exec.CommandContext(ctx, binary, "--model", model, "--alias", n.UpstreamModel, "--host", u.Hostname(), "--port", port, "--ctx-size", strconv.Itoa(contextSize), "--parallel", strconv.Itoa(n.Capacity))
+	contextPerSlot := r.Runtime.ContextPerRequest
+	if contextPerSlot == 0 {
+		contextPerSlot = 32768
+	}
+	if n.Capacity < 1 {
+		return errors.New("invalid engine capacity")
+	}
+	if contextSize != 0 {
+		contextPerSlot = contextSize / n.Capacity
+	}
+	r.actualContext.Store(int64(contextPerSlot))
+	for attempt := 0; ctx.Err() == nil; attempt++ {
+		runtimeArgs, err := r.Runtime.verifyArtifacts(ctx, binary, model, n.ModelSHA256, n.Capacity, contextSize)
+		if err != nil {
+			return err
+		}
+		cmd := exec.CommandContext(ctx, binary, append([]string{"--model", model, "--alias", n.UpstreamModel, "--host", u.Hostname(), "--port", port}, runtimeArgs...)...)
 		cmd.Env = RuntimeEnvironment(binary)
 		configureProcess(cmd)
 		cmd.Cancel = func() error { return killProcessTree(cmd) }
 		cmd.WaitDelay = 3 * time.Second
 		// Engine output can contain customer data. Do not forward it into agent logs.
-		err = cmd.Run()
+		err = startProcess(cmd)
+		if err == nil {
+			r.engineStarts.Add(1)
+			err = waitProcess(cmd)
+		}
 		if ctx.Err() != nil {
 			return nil
 		}
-		if attempt == 4 {
-			break
+		if attempt > 4 {
+			attempt = 4
 		}
 		timer := time.NewTimer(time.Duration(1<<attempt) * time.Second)
 		select {
@@ -61,5 +62,5 @@ func (r *Runner) RunEngine(ctx context.Context, binary, model string, contextSiz
 		case <-timer.C:
 		}
 	}
-	return errors.New("engine restart limit reached")
+	return nil
 }

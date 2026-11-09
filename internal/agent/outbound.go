@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"localaiserver/internal/config"
 	"localaiserver/internal/tunnel"
 	"net/http"
 	"strconv"
@@ -37,7 +38,7 @@ func (r *Runner) gatewayClient() (*http.Client, string, error) {
 	return c, state.Gateway, nil
 }
 func (r *Runner) pollLoop(ctx context.Context, onError func(error)) {
-	for ctx.Err() == nil {
+	for ctx.Err() == nil && !r.draining.Load() {
 		err := r.pollOnce(ctx)
 		if err != nil && ctx.Err() == nil {
 			onError(err)
@@ -73,13 +74,19 @@ func (r *Runner) pollOnce(ctx context.Context) error {
 		cancel()
 		return errors.New("outbound_request_rejected")
 	}
-	err = json.NewDecoder(io.LimitReader(resp.Body, 24<<20)).Decode(&task)
+	err = json.NewDecoder(io.LimitReader(resp.Body, config.AbsoluteMaxRequestBytes*4/3+65536)).Decode(&task)
 	resp.Body.Close()
 	cancel()
-	if err != nil || len(task.ID) != 32 || len(task.Body) > 16<<20 {
+	if err != nil || len(task.ID) != 32 || int64(len(task.Body)) > config.AbsoluteMaxRequestBytes {
 		return errors.New("outbound_invalid_task")
 	}
-	workCtx, stop := context.WithTimeout(ctx, time.Hour)
+	r.active.Add(1)
+	defer r.active.Add(-1)
+	budget := time.Hour
+	if task.TimeoutMillis > 0 {
+		budget = time.Duration(task.TimeoutMillis) * time.Millisecond
+	}
+	workCtx, stop := context.WithTimeout(ctx, budget)
 	defer stop()
 	// A separate long poll propagates client disconnects while the engine is generating.
 	watchDone := make(chan struct{})
@@ -103,22 +110,36 @@ func (r *Runner) pollOnce(ctx context.Context) error {
 			}
 		}
 	}()
-	q, _ := http.NewRequestWithContext(workCtx, "POST", r.upstream.String()+"/v1/chat/completions", bytes.NewReader(task.Body))
+	target := task.Path
+	if target == "" {
+		target = "/v1/chat/completions"
+	}
+	method := task.Method
+	if method == "" {
+		method = "POST"
+	}
+	if !allowedEnginePath(method, target) {
+		return errors.New("outbound_invalid_task")
+	}
+	q, _ := http.NewRequestWithContext(workCtx, method, r.upstream.String()+target, bytes.NewReader(task.Body))
 	q.Header.Set("Content-Type", "application/json")
 	local := &http.Client{Transport: r.transport, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 	output, err := local.Do(q)
 	status := 502
 	contentType := "application/json"
+	retryAfter := ""
 	var body io.ReadCloser = io.NopCloser(bytes.NewBufferString(`{"error":"engine_unavailable"}`))
 	if err == nil {
 		status = output.StatusCode
 		contentType = output.Header.Get("Content-Type")
+		retryAfter = output.Header.Get("Retry-After")
 		body = output.Body
 	}
 	defer body.Close()
 	upload, _ := http.NewRequestWithContext(workCtx, "POST", base+"/internal/tasks/"+task.ID+"/result", body)
 	upload.Header.Set("X-Inference-Status", strconv.Itoa(status))
 	upload.Header.Set("Content-Type", contentType)
+	upload.Header.Set("X-Inference-Retry-After", retryAfter)
 	result, err := c.Do(upload)
 	if err != nil {
 		return errors.New("outbound_result_interrupted")

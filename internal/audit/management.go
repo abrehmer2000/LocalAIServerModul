@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"localaiserver/internal/management"
+	"time"
 )
 
 func (s *Store) SetPlan(ctx context.Context, id string, p management.Plan, actor, keyID, userID string) error {
@@ -18,6 +19,15 @@ func (s *Store) SetPlan(ctx context.Context, id string, p management.Plan, actor
 	var revoked bool
 	if err = tx.QueryRowContext(ctx, "SELECT revoked FROM devices WHERE id=?", id).Scan(&revoked); err != nil || revoked {
 		return ErrCredential
+	}
+	var previous string
+	_ = tx.QueryRowContext(ctx, "SELECT plan FROM management WHERE node_id=?", id).Scan(&previous)
+	var old management.Plan
+	_ = json.Unmarshal([]byte(previous), &old)
+	if p.Action == "stop" || p.Action == "start" && old.Action == "start" {
+		if err = maintenanceAllowed(ctx, tx, time.Now()); err != nil {
+			return err
+		}
 	}
 	data, _ := json.Marshal(p)
 	_, err = tx.ExecContext(ctx, `INSERT INTO management(node_id,plan) VALUES(?,?) ON CONFLICT(node_id) DO UPDATE SET plan=excluded.plan`, id, string(data))

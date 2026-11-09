@@ -1,0 +1,24 @@
+[Unit]
+Description=KI-Basis Model Agent
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+User=ki-basis
+Group=ki-basis
+WorkingDirectory=/var/lib/ki-basis
+ExecStart=/opt/ki-basis/ki-basis agent-ui --dir /var/lib/ki-basis/agent --open-browser=false --quiet-setup
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=7200
+KillMode=control-group
+LimitCORE=0
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/ki-basis
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

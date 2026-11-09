@@ -1,3 +1,6 @@
+> Aktueller V2-Vertrag, Migration und Abnahme: [ANFORDERUNGEN-V2.md](ANFORDERUNGEN-V2.md), [V2-BETRIEB.md](V2-BETRIEB.md).
+> Dieser Branch ist bis zur echten Modell-/Host-/24h-Abnahme ein Testkandidat.
+
 # KI-Basis – lokaler LLM-Zugang
 
 Erste Implementierung eines OpenAI-kompatiblen Gateways für getrennte Kundeninstallationen.
@@ -14,7 +17,7 @@ Der Umfang wird jetzt eingefroren; Freigabekriterien und die nächsten Schritte 
 
 ## Aktueller Umfang
 
-- `POST /v1/chat/completions`: Textnachrichten, JSON-Antworten und echtes SSE-Streaming.
+- `POST /v1/chat/completions`: Text und eingebettete Bilder, validierte JSON-/Schema-Antworten sowie Text-SSE-Streaming.
 - `GET /v1/models`: konfigurierte Modellnamen.
 - Bearer API-Keys, nur als SHA-256-Hash in der Konfiguration.
 - Verpflichtende pseudonyme `X-User-ID` für beide API-Endpunkte.
@@ -35,6 +38,15 @@ Die lokale Agenteneinrichtung öffnet sich per Starter im Browser. Siehe [DASHBO
 Vollständige Benutzerkontenverwaltung, zusätzliche Downloadkataloge, Embeddings, Tool-Calling,
 signierte Systeminstaller sowie automatische GPU-Treiberinstallation und eine automatische Auswahl vertrauenswürdiger Laufzeit-Downloads fehlen noch. Vom Betreiber ausgewählte Laufzeitarchive können bereits importiert werden.
 Eine Kundenauslieferung benötigt weitere Betriebssystem-, Installations- und Sicherheitstests.
+
+## Prozesslog-Gateway-Test
+
+Das [Prozesslog-Testprofil](PROZESSLOG-GATEWAY.md) beschreibt Bild-/Schema-Unterstützung,
+300-s-Inferenzbudget, vier Slots, Kontext je Anfrage, Konfigurationsmigration und Rückweg.
+Die echte MoE-/Vision-Abnahme bleibt erforderlich.
+Für Zentrale plus Prozesslog auf einem Windows-Server und einen getrennten
+KI-Agenten siehe [Zwei-Server-Test](ZWEI-SERVER-TEST.md). `init-central` bereitet
+eine neue netzwerkfähige Zentrale mit getrennten Admin-/Anwendungsschlüsseln vor.
 
 ## Bauen und prüfen
 
@@ -60,7 +72,7 @@ go build -o bin/ki-basis.exe ./cmd/ki-basis
 2. Engine starten (unter Windows `llama-server.exe`):
 
 ```sh
-llama-server --model /pfad/modell.gguf --alias gemma-4-26b-a4b --host 127.0.0.1 --port 8081 --ctx-size 4096 --parallel 1
+llama-server --model /pfad/modell.gguf --alias gemma-4-26b-a4b --host 127.0.0.1 --port 8081 --ctx-size 32768 --no-context-shift --cache-ram 0 --log-disable --predict -1 --parallel 1
 ```
 
 3. Schlüssel **einmal lokal** erzeugen:
@@ -168,11 +180,13 @@ Eine Engine nur im privaten Netz bereitstellen und auf Gateway-Zugriff begrenzen
 
 ## API-Vertrag
 
-Unterstützte Felder: `model`, `messages` (Text; Rollen system/developer/user/assistant; optional name),
+Unterstützte Felder: `model`, `messages` (Text oder eingebettete Bildteile; Rollen system/developer/user/assistant; optional name),
 `stream`, `max_tokens` oder `max_completion_tokens`, `temperature`, `top_p`, `stop`, `seed`,
-`frequency_penalty`, `presence_penalty`, `stream_options.include_usage`, `n` (nur 1), optional `user`.
+`frequency_penalty`, `presence_penalty`, `stream_options.include_usage`, `n` (nur 1), optional `user`,
+`chat_template_kwargs.enable_thinking`, `response_format` und `cache_prompt` (wird immer auf false gesetzt).
 Ein gesetztes `user` muss `X-User-ID` entsprechen und wird vor der Weiterleitung entfernt.
-Unbekannte Felder werden abgewiesen. Tool-Calling, Bilder und weitere Endpunkte werden noch nicht unterstützt.
+Unbekannte Felder werden abgewiesen. Tool-Calling und weitere Endpunkte werden noch nicht unterstützt.
+Bildgrenzen, strukturierte Ausgabe und Fehlerdetails stehen im [Prozesslog-Profil](PROZESSLOG-GATEWAY.md).
 Die tatsächliche Parameterunterstützung hängt außerdem von der verwendeten Engine ab.
 
 - `X-User-ID`: 1–128 ASCII-Zeichen, Buchstaben/Ziffern sowie `._:-`; Beginn mit Buchstabe/Ziffer.

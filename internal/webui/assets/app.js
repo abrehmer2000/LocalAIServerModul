@@ -303,6 +303,8 @@
         byId("server-model").value = device.model;
         byId("server-revision").value = device.revision;
         byId("server-capacity").value = "1";
+        byId("server-vision").checked = device.vision === true;
+        byId("server-context").value = device.context_per_request || 32768;
         showServerStep(0);
         byId("server-name").focus();
       });
@@ -579,10 +581,14 @@
       const existing = latestOverview?.devices.find(
         (d) => !d.revoked && d.model === byId("server-model").value,
       );
-      if (existing) byId("server-revision").value = existing.revision;
+      if (existing) {
+        byId("server-revision").value = existing.revision;
+        byId("server-vision").checked = existing.vision === true;
+        byId("server-context").value = existing.context_per_request || 32768;
+      }
     }
     if (setupStep === 1)
-      for (const id of ["server-model", "server-revision", "server-capacity"])
+      for (const id of ["server-model", "server-revision", "server-capacity", "server-context"])
         if (!byId(id).reportValidity()) return;
     if (setupStep < 4) showServerStep(setupStep + 1);
     if (latestOverview) updateSetup(latestOverview);
@@ -681,7 +687,8 @@
         gateway: byId("gateway-address").value.replace(/\/$/, ""),
         model: byId("server-model").value,
         revision: byId("server-revision").value,
-        capacity: Number(byId("server-capacity").value),
+        vision: byId("server-vision").checked, context_per_request: Number(byId("server-context").value),
+        engine_protocol: "llama.cpp", capacity: Number(byId("server-capacity").value),
       });
       if (s !== session) return;
       setupNode = bundle.node_id;

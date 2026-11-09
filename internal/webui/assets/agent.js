@@ -25,6 +25,7 @@
       "Die Zentrale ist nicht erreichbar oder kann die Änderung nicht protokollieren. Verbindung prüfen und erneut versuchen.",
     engine_binary_not_found:
       "llama-server wurde am angegebenen Pfad nicht gefunden.",
+    invalid_runtime_options: "Kontextgröße oder Vision-Projektor prüfen.",
     existing_model_not_found:
       "Die vorhandene Modelldatei wurde nicht gefunden.",
     already_connected: "Dieser Rechner ist bereits angemeldet.",
@@ -56,6 +57,7 @@
       engine: $("engine").value.trim(),
       models: $("models").value.trim(),
       existing_model: $("existing-model").value.trim(),
+ runtime: {context_per_request: Number($("context-per-request").value) || 0, projector: $("projector").value.trim(), projector_sha256: $("projector-sha256").value.trim()},
     };
   }
   function show(next) {
@@ -89,6 +91,9 @@
       ["existing-model", "existing_model"],
     ])
       $(id).value = s[key] || "";
+    $("context-per-request").value = s.runtime?.context_per_request || 32768;
+    $("projector").value = s.runtime?.projector || "";
+    $("projector-sha256").value = s.runtime?.projector_sha256 || "";
     $("runtime-note").textContent = s.binary
       ? "Vorhandene Laufzeit erkannt. Beim nächsten Schritt wird ihr Start geprüft."
       : "Noch keine Laufzeit erkannt. Ein passendes Paket importieren oder unter Erweitert eine vorhandene Installation auswählen.";

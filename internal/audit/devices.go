@@ -154,5 +154,26 @@ func (s *Store) Revoke(ctx context.Context, id, actor string) error {
 	if err = appendTx(ctx, tx, Event{Type: "node.revoked", NodeID: id, Actor: actor}); err != nil {
 		return err
 	}
-	return tx.Commit()
+	if err = tx.Commit(); err != nil {
+		return err
+	}
+	s.notifyRevoked(id)
+	return nil
+}
+
+func (s *Store) OnDeviceRevoked(id string, listener func()) {
+	s.revocationMu.Lock()
+	defer s.revocationMu.Unlock()
+	if s.revocationListeners == nil {
+		s.revocationListeners = map[string][]func(){}
+	}
+	s.revocationListeners[id] = append(s.revocationListeners[id], listener)
+}
+func (s *Store) notifyRevoked(id string) {
+	s.revocationMu.Lock()
+	listeners := append([]func(){}, s.revocationListeners[id]...)
+	s.revocationMu.Unlock()
+	for _, listener := range listeners {
+		listener()
+	}
 }

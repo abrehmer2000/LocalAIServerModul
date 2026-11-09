@@ -2,6 +2,7 @@
 package pool
 
 import (
+	"context"
 	"crypto/tls"
 	"crypto/x509"
 	"errors"
@@ -15,23 +16,35 @@ import (
 )
 
 type Node struct {
-	Config      config.Node
-	Client      *http.Client
-	active      int
-	failedUntil time.Time
-	dynamic     bool
-	ready       bool
-	leaseUntil  time.Time
-	authorized  func() bool
+	engineBoot         string
+	engineSessionCount uint64
+	probeClient        *http.Client
+	engineStarts       uint64
+	Config             config.Node
+	Client             *http.Client
+	active             int
+	meanDuration       time.Duration
+	oldest             time.Time
+	lifecycle          string
+	dynamic            bool
+	ready              bool
+	leaseUntil         time.Time
+	authorized         func() bool
 }
 type Pool struct {
-	mu     sync.Mutex
-	nodes  []*Node
-	cursor int
+	healthCancel context.CancelFunc
+	healthWG     sync.WaitGroup
+	mu           sync.Mutex
+	nodes        []*Node
+	cursor       int
+	waitMu       sync.Mutex
+	waiters      []*waiter
+	changed      chan struct{}
+	draining     bool
 }
 
 func New(configs []config.Node) (*Pool, error) {
-	p := &Pool{}
+	p := &Pool{changed: make(chan struct{})}
 	for _, c := range configs {
 		tlsConfig := &tls.Config{MinVersion: tls.VersionTLS12}
 		if c.CAFile != "" {
@@ -48,7 +61,7 @@ func New(configs []config.Node) (*Pool, error) {
 			}
 			tlsConfig.RootCAs = roots
 		}
-		transport := &http.Transport{Proxy: nil, DialContext: (&net.Dialer{Timeout: 5 * time.Second, KeepAlive: 30 * time.Second}).DialContext, TLSClientConfig: tlsConfig, TLSHandshakeTimeout: 5 * time.Second, ResponseHeaderTimeout: 30 * time.Second, MaxIdleConnsPerHost: c.Capacity, MaxConnsPerHost: c.Capacity, IdleConnTimeout: 60 * time.Second, DisableCompression: true}
+		transport := &http.Transport{Proxy: nil, DialContext: (&net.Dialer{Timeout: 5 * time.Second, KeepAlive: 30 * time.Second}).DialContext, TLSClientConfig: tlsConfig, TLSHandshakeTimeout: 5 * time.Second, MaxIdleConnsPerHost: c.Capacity, MaxConnsPerHost: c.Capacity, IdleConnTimeout: 60 * time.Second, DisableCompression: true}
 		p.nodes = append(p.nodes, &Node{Config: c, Client: &http.Client{Transport: transport, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}})
 	}
 	return p, nil
@@ -101,7 +114,7 @@ func (p *Pool) acquire(model, id string) (*Node, func(bool)) {
 	for i := 0; i < len(p.nodes); i++ {
 		j := (p.cursor + i) % len(p.nodes)
 		n := p.nodes[j]
-		if (id == "" && n.Config.Model != model) || (id != "" && n.Config.ID != id) || (n.dynamic && (!n.ready || !time.Now().Before(n.leaseUntil) || !allowed[n])) || n.active >= n.Config.Capacity || time.Now().Before(n.failedUntil) {
+		if (id == "" && n.Config.Model != model) || (id != "" && n.Config.ID != id) || ((n.dynamic || n.Config.EngineProtocol == "llama.cpp") && (!n.ready || !time.Now().Before(n.leaseUntil))) || (n.dynamic && !allowed[n]) || n.active >= n.Config.Capacity {
 			continue
 		}
 		if best < 0 || n.active*p.nodes[best].Config.Capacity < p.nodes[best].active*n.Config.Capacity {
@@ -112,6 +125,10 @@ func (p *Pool) acquire(model, id string) (*Node, func(bool)) {
 		return nil, nil
 	}
 	n := p.nodes[best]
+	if n.active == 0 {
+		n.oldest = time.Now()
+	}
+	started := time.Now()
 	n.active++
 	p.cursor = (best + 1) % len(p.nodes)
 	var once sync.Once
@@ -119,10 +136,19 @@ func (p *Pool) acquire(model, id string) (*Node, func(bool)) {
 		once.Do(func() {
 			p.mu.Lock()
 			defer p.mu.Unlock()
-			n.active--
-			if failed {
-				n.failedUntil = time.Now().Add(5 * time.Second)
+			if !failed {
+				d := time.Since(started)
+				if n.meanDuration == 0 {
+					n.meanDuration = d
+				} else {
+					n.meanDuration = (3*n.meanDuration + d) / 4
+				}
 			}
+			// Request failure does not establish node failure. Readiness comes
+			// from health/agent reports; every completed reservation wakes the
+			// queue immediately, including failures and cancellations.
+			n.active--
+			p.notifyLocked()
 		})
 	}
 }
@@ -130,10 +156,17 @@ func (n *Node) Endpoint() string {
 	return strings.TrimRight(n.Config.URL, "/") + "/v1/chat/completions"
 }
 func (p *Pool) Close() {
+	if p.healthCancel != nil {
+		p.healthCancel()
+		p.healthWG.Wait()
+	}
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	for _, n := range p.nodes {
 		n.Client.CloseIdleConnections()
+		if n.probeClient != nil {
+			n.probeClient.CloseIdleConnections()
+		}
 	}
 }
 
@@ -154,7 +187,7 @@ func (p *Pool) AddDynamic(c config.Node, clientTLS *tls.Config, authorized func(
 			n.Client.CloseIdleConnections()
 			return errors.New("node ID already registered")
 		}
-		if other.Config.Model == c.Model && other.Config.Revision != c.Revision {
+		if other.Config.Model == c.Model && (other.Config.Revision != c.Revision || other.Config.Vision != c.Vision || other.Config.ContextSize() != c.ContextSize() || other.Config.Kind != c.Kind || other.Config.EngineSHA256 != c.EngineSHA256 || other.Config.TemplateSHA256 != c.TemplateSHA256) {
 			n.Client.CloseIdleConnections()
 			return errors.New("model revision conflict")
 		}
@@ -182,6 +215,7 @@ func (p *Pool) Heartbeat(id string, ready bool, ttl time.Duration) {
 		if n.Config.ID == id && n.dynamic {
 			n.ready = ready
 			n.leaseUntil = time.Now().Add(ttl)
+			p.notifyLocked()
 			return
 		}
 	}
@@ -202,9 +236,9 @@ func (p *Pool) Snapshot() []Status {
 	nodes := append([]*Node(nil), p.nodes...)
 	for _, n := range nodes {
 		state := "configured"
-		if n.dynamic {
+		if n.dynamic || n.Config.EngineProtocol == "llama.cpp" {
 			state = "unavailable"
-			if n.ready && time.Now().Before(n.leaseUntil) && !time.Now().Before(n.failedUntil) {
+			if n.ready && time.Now().Before(n.leaseUntil) {
 				state = "ready"
 			}
 		}
@@ -227,6 +261,71 @@ func (p *Pool) SetTransport(id string, transport http.RoundTripper) {
 		if n.Config.ID == id {
 			n.Client.CloseIdleConnections()
 			n.Client.Transport = transport
+			return
+		}
+	}
+}
+
+// ProbeNode does not reserve an inference slot: tokenizer/health endpoints must
+// remain callable while the inference queue is full.
+func (p *Pool) ProbeNode(model string) *Node {
+	p.mu.Lock()
+	nodes := append([]*Node(nil), p.nodes...)
+	p.mu.Unlock()
+	for _, n := range nodes {
+		if n.Config.Model == model && (!n.dynamic || n.authorized()) {
+			return n
+		}
+	}
+	return nil
+}
+
+func (p *Pool) EngineStarts(id string) uint64 {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	for _, n := range p.nodes {
+		if n.Config.ID == id {
+			return n.engineStarts
+		}
+	}
+	return 0
+}
+func (p *Pool) SetEngineStarts(id string, count uint64) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	for _, n := range p.nodes {
+		if n.Config.ID == id {
+			n.engineStarts = count
+			return
+		}
+	}
+}
+
+func (n *Node) Origin() string { return strings.TrimRight(n.Config.URL, "/") }
+
+func (p *Pool) EngineSession(id string) (string, uint64) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	for _, n := range p.nodes {
+		if n.Config.ID == id {
+			return n.engineBoot, n.engineSessionCount
+		}
+	}
+	return "", 0
+}
+func (p *Pool) SetEngineSession(id, boot string, count uint64) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	for _, n := range p.nodes {
+		if n.Config.ID == id {
+			if n.engineBoot != boot {
+				n.engineBoot = boot
+				n.engineSessionCount = 0
+			}
+			if count > n.engineSessionCount {
+				n.engineStarts += count - n.engineSessionCount
+				n.engineSessionCount = count
+			}
 			return
 		}
 	}

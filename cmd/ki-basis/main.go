@@ -14,11 +14,11 @@ import (
 	"localaiserver/internal/config"
 	"localaiserver/internal/control"
 	"localaiserver/internal/gateway"
+	"localaiserver/internal/httpbound"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
-	"os/signal"
-	"syscall"
 	"time"
 )
 
@@ -37,6 +37,16 @@ func run() error {
 	}
 	command := os.Args[1]
 	switch command {
+	case "inspect":
+		return inspectCommand(os.Args[2:])
+	case "audit-checkpoint":
+		return checkpointCommand(os.Args[2:])
+	case "service":
+		return serviceCommandMain(os.Args[2:])
+	case "init-central":
+		return centralInitCommand(os.Args[2:])
+	case "prozesslog-profile":
+		return prozesslogProfileCommand(os.Args[2:])
 	case "restore":
 		return restoreCommand(os.Args[2:])
 	case "agent-bootstrap":
@@ -46,7 +56,7 @@ func run() error {
 	case "agent-ui":
 		return agentUICommand(os.Args[2:])
 	case "--help", "-h", "help":
-		fmt.Fprintln(os.Stdout, "KI-Basis: serve | quickstart | agent-ui | agent-bootstrap | restore | agent join|run | keygen | audit-verify | audit-export | init-tls | join-token | node-list | node-revoke | admin-key")
+		fmt.Fprintln(os.Stdout, "KI-Basis: inspect | service install|run | audit-checkpoint | init-central | prozesslog-profile | serve | quickstart | agent-ui | agent-bootstrap | restore | agent join|run | keygen | audit-verify | audit-export | init-tls | join-token | node-list | node-revoke | admin-key")
 		return nil
 	case "quickstart":
 		return quickstartCommand(os.Args[2:])
@@ -105,6 +115,9 @@ func run() error {
 		}
 		return nil
 	}
+	if err = cfg.ValidateDeployment(); err != nil {
+		return err
+	}
 	g, err := gateway.New(cfg, store)
 	if err != nil {
 		return err
@@ -113,7 +126,7 @@ func run() error {
 	if err = store.Append(context.Background(), audit.Event{Type: "gateway.started", Outcome: "configuration_loaded"}); err != nil {
 		return err
 	}
-	server := &http.Server{Addr: cfg.Listen, Handler: g.Handler(), ReadHeaderTimeout: 10 * time.Second, ReadTimeout: 30 * time.Second, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 16 << 10, TLSConfig: &tls.Config{MinVersion: tls.VersionTLS12}}
+	server := &http.Server{TLSNextProto: map[string]func(*http.Server, *tls.Conn, http.Handler){}, Addr: cfg.Listen, Handler: g.Handler(), ReadHeaderTimeout: 10 * time.Second, ReadTimeout: config.UploadTimeout, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 16 << 10, TLSConfig: &tls.Config{MinVersion: tls.VersionTLS12}}
 	var controller *control.Service
 	if cfg.ControlCACert != "" {
 		controller, err = control.New(cfg, store, g.Pool())
@@ -124,21 +137,29 @@ func run() error {
 		mux.Handle("/internal/", controller.Handler())
 		mux.Handle("/admin/", g.Admin(controller.AdminHandler()))
 		mux.Handle("/", g.Handler())
-		server.Handler = mux
+		server.Handler = g.GuardPaths(mux)
 		server.TLSConfig = controller.TLSConfig()
 		defer controller.Close()
 	}
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	ctx, stop := terminationContext()
 	defer stop()
+	if err = runCheckpointAnchors(ctx, store, cfg, g.BeginDrain); err != nil {
+		return err
+	}
 	if controller != nil {
 		go controller.Monitor(ctx)
 	}
+	listener, err := net.Listen("tcp", cfg.Listen)
+	if err != nil {
+		return err
+	}
+	bounded := httpbound.New(listener, cfg.ConcurrentLimit()*4)
 	exit := make(chan error, 1)
 	go func() {
 		if cfg.TLSCert != "" {
-			exit <- server.ListenAndServeTLS(cfg.TLSCert, cfg.TLSKey)
+			exit <- server.ServeTLS(bounded, cfg.TLSCert, cfg.TLSKey)
 		} else {
-			exit <- server.ListenAndServe()
+			exit <- server.Serve(bounded)
 		}
 	}()
 	slog.Info("gateway listening", "address", cfg.Listen)
@@ -149,8 +170,10 @@ func run() error {
 		}
 		return err
 	case <-ctx.Done():
-		shutdown, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		g.BeginDrain()
+		shutdown, cancel := context.WithTimeout(context.Background(), cfg.ProxyBudget())
 		defer cancel()
+		_ = g.WaitIdle(shutdown)
 		err = server.Shutdown(shutdown)
 		if err != nil {
 			_ = server.Close()

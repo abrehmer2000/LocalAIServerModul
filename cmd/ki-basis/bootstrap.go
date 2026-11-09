@@ -6,6 +6,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"localaiserver/internal/logmeta"
 	"net"
 	"os"
 	"os/exec"
@@ -150,6 +151,9 @@ func bootstrapAgent(args []string) error {
 		return e
 	}
 	defer os.Remove(ca)
+	if e := pinSettings(context.Background(), &settings); e != nil {
+		return errors.New("runtime_revision_invalid")
+	}
 	data, _ := json.Marshal(settings)
 	if e = writePrivate(filepath.Join(absolute, "settings.json"), data); e != nil {
 		return e
@@ -185,7 +189,7 @@ func bootstrapAgent(args []string) error {
 		}
 		return json.NewEncoder(os.Stdout).Encode(map[string]any{"connected": true, "node_id": bundle.NodeID, "setup_port": port, "data_directory": absolute, "service": true, "restart_mode": "systemd"})
 	}
-	log, e := os.OpenFile(filepath.Join(absolute, "setup.log"), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0600)
+	log, e := logmeta.Open(filepath.Join(absolute, "setup.log"), 100_000_000, 7)
 	if e != nil {
 		return e
 	}

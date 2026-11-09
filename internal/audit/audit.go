@@ -29,8 +29,10 @@ type Record struct {
 	Hash     string `json:"hash"`
 }
 type Store struct {
-	db *sql.DB
-	mu sync.Mutex
+	revocationMu        sync.Mutex
+	revocationListeners map[string][]func()
+	db                  *sql.DB
+	mu                  sync.Mutex
 }
 
 func Open(path string) (*Store, error) {
@@ -76,6 +78,9 @@ func Open(path string) (*Store, error) {
  CREATE TABLE IF NOT EXISTS devices(id TEXT PRIMARY KEY, descriptor TEXT NOT NULL, fingerprint TEXT NOT NULL, previous_fingerprint TEXT NOT NULL DEFAULT '', previous_until INTEGER NOT NULL DEFAULT 0, revoked INTEGER NOT NULL DEFAULT 0);
  CREATE TABLE IF NOT EXISTS management(node_id TEXT PRIMARY KEY, plan TEXT NOT NULL);
  CREATE TABLE IF NOT EXISTS model_pins(id TEXT PRIMARY KEY, descriptor TEXT NOT NULL);
+ CREATE TABLE IF NOT EXISTS api_key_sets(id INTEGER PRIMARY KEY CHECK(id=1),descriptor TEXT NOT NULL);
+ CREATE TABLE IF NOT EXISTS import_leases(id TEXT PRIMARY KEY,key_id TEXT NOT NULL,expires INTEGER NOT NULL);
+ CREATE TABLE IF NOT EXISTS maintenance_window(id INTEGER PRIMARY KEY CHECK(id=1),not_before INTEGER NOT NULL,not_after INTEGER NOT NULL);
  UPDATE schema_version SET version=3;
  COMMIT;`)
 	if err != nil {
@@ -172,4 +177,26 @@ func (s *Store) Verify(ctx context.Context, yield func(Record) error) (Record, e
 		}
 	}
 	return head, rows.Err()
+}
+
+// Head reads the already append-protected chain tip in O(1) for periodic anchors.
+// Full-chain verification remains mandatory when opening the store.
+func (s *Store) Head(ctx context.Context) (Record, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var raw, hash string
+	var sequence int64
+	err := s.db.QueryRowContext(ctx, "SELECT sequence,payload,hash FROM audit ORDER BY sequence DESC LIMIT 1").Scan(&sequence, &raw, &hash)
+	if err == sql.ErrNoRows {
+		return Record{}, nil
+	}
+	if err != nil {
+		return Record{}, err
+	}
+	var r Record
+	if json.Unmarshal([]byte(raw), &r) != nil || r.Sequence != sequence || digest([]byte(raw)) != hash {
+		return Record{}, errors.New("invalid audit head")
+	}
+	r.Hash = hash
+	return r, nil
 }

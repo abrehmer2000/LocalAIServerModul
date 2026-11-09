@@ -49,7 +49,7 @@ func TestCapacityConcurrentAcquireAndRelease(t *testing.T) {
 		t.Fatal("double release created capacity")
 	}
 }
-func TestModelIsolationAndFailedNode(t *testing.T) {
+func TestModelIsolationAndRequestFailureDoesNotFenceNode(t *testing.T) {
 	p, err := New([]config.Node{{ID: "a", Model: "m1", Capacity: 1}, {ID: "b", Model: "m2", Capacity: 1}})
 	if err != nil {
 		t.Fatal(err)
@@ -60,8 +60,10 @@ func TestModelIsolationAndFailedNode(t *testing.T) {
 		t.Fatal("wrong model selected")
 	}
 	release(true)
-	if n, _ := p.Acquire("m1"); n != nil {
-		t.Fatal("failed node selected or model substituted")
+	if n, done := p.Acquire("m1"); n == nil || n.Config.ID != "a" {
+		t.Fatal("request failure fenced a free node or substituted its model")
+	} else {
+		done(false)
 	}
 	if n, _ := p.Acquire("m2"); n == nil || n.Config.ID != "b" {
 		t.Fatal("healthy node unavailable")
@@ -96,5 +98,23 @@ func TestDynamicHeartbeatLeaseAndRevocation(t *testing.T) {
 	allowed = false
 	if got, _ = p.Acquire("m"); got != nil {
 		t.Fatal("revoked node still routed")
+	}
+}
+
+func TestEngineStartsSurviveAgentSessionCounterReset(t *testing.T) {
+	p, err := New([]config.Node{{ID: "n", Model: "m", Capacity: 1}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer p.Close()
+	p.SetEngineSession("n", "boot1", 3)
+	p.SetEngineSession("n", "boot1", 3)
+	p.SetEngineSession("n", "boot1", 2)
+	p.SetEngineSession("n", "boot2", 1)
+	if boot, count := p.EngineSession("n"); boot != "boot2" || count != 1 {
+		t.Fatalf("session=%s/%d", boot, count)
+	}
+	if p.nodes[0].engineStarts != 4 {
+		t.Fatalf("starts=%d", p.nodes[0].engineStarts)
 	}
 }
