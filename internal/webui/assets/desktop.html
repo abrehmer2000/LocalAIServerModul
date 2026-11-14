@@ -1,0 +1,219 @@
+<!doctype html>
+<html lang="de">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>KI-Basis · Willkommen</title>
+    <link rel="stylesheet" href="/desktop.css" />
+    <script src="/desktop.js" defer></script>
+  </head>
+  <body>
+    <header>
+      <a class="brand" href="/" aria-label="KI-Basis Startseite"
+        ><span class="logo" aria-hidden="true">K</span> KI-Basis</a
+      ><span class="local"
+        ><span aria-hidden="true">●</span> Auf diesem Rechner</span
+      >
+    </header>
+    <main>
+      <div class="intro">
+        <p class="eyebrow">DEINE LOKALE KI</p>
+        <h1>Einrichten. Loslegen.</h1>
+        <p class="lead">
+          KI-Basis verbindet dein Modell mit deinen Anwendungen. Die Einrichtung
+          bleibt auf diesem Rechner.
+        </p>
+      </div>
+      <div id="connection-notice" class="notice" role="status" hidden></div>
+      <div id="error-notice" class="notice error" role="alert" hidden></div>
+      <ol class="steps" aria-label="Einrichtungsschritte">
+        <li id="step-runtime" aria-current="step">
+          <span>1</span> Vorbereiten
+        </li>
+        <li id="step-model"><span>2</span> Modell laden</li>
+        <li id="step-test"><span>3</span> Ausprobieren</li>
+      </ol>
+      <section class="card" aria-labelledby="setup-title">
+        <div class="card-heading">
+          <span class="eyebrow" id="stage-label">WILLKOMMEN</span
+          ><span id="state-badge" class="badge">Status wird geladen</span>
+        </div>
+        <h2 id="setup-title">Ein Ort für deine KI.</h2>
+        <p id="stage-description">
+          Zentrale, Laufzeit und lokaler Modellserver werden gemeinsam
+          eingerichtet. Du brauchst keine Terminalbefehle oder
+          Verbindungsdateien.
+        </p>
+        <div id="runtime-panel" class="section">
+          <div class="summary-row">
+            <div>
+              <h3>Passende Laufzeit</h3>
+              <p id="runtime-description">
+                Die Empfehlung wird für deinen Rechner ermittelt.
+              </p>
+            </div>
+            <span id="runtime-state" class="tag">Noch nicht installiert</span>
+          </div>
+          <p>
+            Mit „Vorbereiten“ erlaubst du den Download der empfohlenen
+            CPU-Laufzeit von GitHub. KI-Basis prüft die Datei, bevor sie
+            verwendet wird.
+          </p>
+          <details>
+            <summary>Download und Speicherort</summary>
+            <dl>
+              <dt>Version</dt>
+              <dd id="runtime-version">–</dd>
+              <dt>Download</dt>
+              <dd id="runtime-size">–</dd>
+              <dt>Quelle</dt>
+              <dd>
+                <a id="runtime-source" target="_blank" rel="noreferrer"
+                  >Noch keine Empfehlung</a
+                >
+              </dd>
+              <dt>SHA-256</dt>
+              <dd id="runtime-sha" class="mono">–</dd>
+              <dt>Datenordner</dt>
+              <dd id="data-directory" class="mono">–</dd>
+            </dl>
+          </details>
+        </div>
+        <div id="model-panel" class="section" hidden>
+          <div class="summary-row">
+            <div>
+              <h3 id="model-name">Empfohlenes Modell</h3>
+              <p id="model-description">
+                Textmodell für deinen lokalen KI-Zugang.
+              </p>
+            </div>
+            <span id="model-state" class="tag">Noch nicht geladen</span>
+          </div>
+          <p>
+            Der Modelldownload kann viele GB groß sein. Größe und Fortschritt
+            erscheinen, sobald der Download beginnt. Plane ausreichend freien
+            Speicher und Arbeitsspeicher ein. Auf CPUs können Laden und
+            Antworten mehrere Minuten dauern.
+          </p>
+          <p>
+            <a id="model-source" target="_blank" rel="noreferrer"
+              >Modellquelle und Lizenz ansehen</a
+            >
+          </p>
+        </div>
+        <div
+          id="progress-panel"
+          class="progress-panel"
+          role="status"
+          aria-live="polite"
+          hidden
+        >
+          <div class="progress-heading">
+            <strong id="progress-label">Wird vorbereitet …</strong
+            ><span id="progress-detail"></span>
+          </div>
+          <progress id="operation-progress" aria-label="Fortschritt"></progress>
+          <p id="progress-help">
+            Du kannst diese Seite schließen und später über KI-Basis wieder
+            öffnen.
+          </p>
+        </div>
+        <div id="answer-panel" class="answer" hidden>
+          <span class="eyebrow">DEINE ERSTE TESTANTWORT</span>
+          <p id="test-answer"></p>
+          <p class="answer-caption">
+            Diese Antwort wurde vom Modell erzeugt. Der Test bestätigt die
+            Funktion zum jetzigen Zeitpunkt.
+          </p>
+        </div>
+        <div class="actions">
+          <button id="prepare-button" type="button" disabled>Vorbereiten</button
+          ><button id="model-button" type="button" hidden>
+            Modell herunterladen und starten</button
+          ><button id="test-button" type="button" hidden>
+            Testantwort erzeugen</button
+          ><button id="cancel-button" class="secondary" type="button" hidden>
+            Abbrechen</button
+          ><button id="stop-button" class="secondary" type="button" hidden>
+            Modell stoppen</button
+          ><button id="retry-button" class="secondary" type="button" hidden>
+            Erneut verbinden
+          </button>
+        </div>
+        <p class="footnote" id="privacy-note">
+          Für Downloads wird eine Internetverbindung benötigt. Deine Dokumente
+          werden dabei nicht übertragen.
+        </p>
+      </section>
+      <section
+        class="card access-card"
+        id="access-section"
+        aria-labelledby="access-title"
+        hidden
+      >
+        <span class="eyebrow">NÄCHSTER SCHRITT</span>
+        <h2 id="access-title">Deine Anwendung verbinden.</h2>
+        <p>
+          Verwende einen eigenen Anwendungszugang, zum Beispiel für Prozesslog.
+          Dieser Schlüssel darf das Modell nutzen und hat keine
+          Administratorrechte.
+        </p>
+        <button id="access-button" class="secondary" type="button">
+          Verbindungsdaten anzeigen
+        </button>
+        <div id="access-fields" hidden>
+          <label for="access-base">API-Basisadresse</label
+          ><input id="access-base" readonly />
+          <label for="access-model">Modell</label
+          ><input id="access-model" readonly />
+          <label for="access-user">Benutzer-ID (X-User-ID)</label
+          ><input id="access-user" readonly />
+          <label for="access-key">Anwendungsschlüssel</label
+          ><input id="access-key" type="password" readonly autocomplete="off" />
+          <div class="actions">
+            <button id="copy-key-button" class="secondary" type="button">
+              Schlüssel kopieren</button
+            ><button id="save-ca-button" class="secondary" type="button">
+              CA-Zertifikat speichern</button
+            ><button id="hide-access-button" class="text-button" type="button">
+              Ausblenden
+            </button>
+          </div>
+          <p class="footnote">
+            Gib Schlüssel nur in deiner vertrauenswürdigen Anwendung ein. Die
+            lokale Adresse funktioniert auf diesem Rechner. Für HTTPS benötigt
+            die Anwendung das CA-Zertifikat.
+          </p>
+        </div>
+        <p id="access-notice" role="status" aria-live="polite"></p>
+      </section>
+      <section class="lifecycle" aria-labelledby="lifecycle-title">
+        <div>
+          <h2 id="lifecycle-title">Im Hintergrund für dich da.</h2>
+          <p id="lifecycle-description">Der Betriebsmodus wird geprüft.</p>
+        </div>
+        <button id="quit-button" class="text-button" type="button" hidden>
+          KI-Basis beenden
+        </button>
+      </section>
+      <details class="advanced">
+        <summary>Weitere Rechner und erweiterte Verwaltung</summary>
+        <p>
+          Diese Einrichtung verbindet die Zentrale mit dem Modellserver auf
+          diesem Rechner. Zusätzliche Rechner, andere Modelle und eigene
+          Laufzeiten sind über den bisherigen Manager und die
+          Administrationswerkzeuge verfügbar.
+        </p>
+        <p>
+          Die lokale Standardinstallation öffnet keine Firewallports. Für einen
+          entfernten Zugriff brauchst du eine bewusst eingerichtete HTTPS- oder
+          VPN-Verbindung.
+        </p>
+        <a id="dashboard-link" hidden>Verwaltung öffnen</a>
+      </details>
+    </main>
+    <footer>
+      KI-Basis <span aria-hidden="true">·</span> Lokaler LLM-Zugang
+    </footer>
+  </body>
+</html>
