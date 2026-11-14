@@ -24,7 +24,7 @@ import (
 
 func main() {
 	if err := run(); err != nil && !errors.Is(err, flag.ErrHelp) {
-		slog.Error("command failed", "error", err)
+		reportCommandError(err)
 		os.Exit(1)
 	}
 }
@@ -33,10 +33,14 @@ func run() error {
 		return sshAskpass()
 	}
 	if len(os.Args) < 2 {
-		return agentUICommand(nil)
+		return desktopCommand(nil)
 	}
 	command := os.Args[1]
 	switch command {
+	case "desktop":
+		return desktopCommand(os.Args[2:])
+	case "desktop-open":
+		return desktopOpenCommand(os.Args[2:])
 	case "inspect":
 		return inspectCommand(os.Args[2:])
 	case "audit-checkpoint":
@@ -56,7 +60,7 @@ func run() error {
 	case "agent-ui":
 		return agentUICommand(os.Args[2:])
 	case "--help", "-h", "help":
-		fmt.Fprintln(os.Stdout, "KI-Basis: inspect | service install|run | audit-checkpoint | init-central | prozesslog-profile | serve | quickstart | agent-ui | agent-bootstrap | restore | agent join|run | keygen | audit-verify | audit-export | init-tls | join-token | node-list | node-revoke | admin-key")
+		fmt.Fprintln(os.Stdout, "KI-Basis: desktop | desktop-open | inspect | service install|run | audit-checkpoint | init-central | prozesslog-profile | serve | quickstart | agent-ui | agent-bootstrap | restore | agent join|run | keygen | audit-verify | audit-export | init-tls | join-token | node-list | node-revoke | admin-key")
 		return nil
 	case "quickstart":
 		return quickstartCommand(os.Args[2:])
