@@ -20,6 +20,18 @@ Assert-AbsolutePath $InstallDirectory
 Assert-AbsolutePath $DataDirectory
 $InstallDirectory = [IO.Path]::GetFullPath($InstallDirectory).TrimEnd('\')
 $DataDirectory = [IO.Path]::GetFullPath($DataDirectory).TrimEnd('\')
+if ($Mode -eq 'Server') {
+  $programFiles = [Environment]::GetFolderPath([Environment+SpecialFolder]::ProgramFiles)
+  $expectedDirectory = [IO.Path]::Combine($programFiles, 'KI-Basis')
+  if (-not [string]::Equals($InstallDirectory, $expectedDirectory, [StringComparison]::OrdinalIgnoreCase)) {
+    throw 'Server mode requires the protected Program Files/KI-Basis installation directory.'
+  }
+  $programData = [Environment]::GetFolderPath([Environment+SpecialFolder]::CommonApplicationData)
+  $expectedDataDirectory = [IO.Path]::Combine($programData, 'KI-Basis', 'desktop')
+  if (-not [string]::Equals($DataDirectory, $expectedDataDirectory, [StringComparison]::OrdinalIgnoreCase)) {
+    throw 'Server mode requires the dedicated ProgramData/KI-Basis/desktop data directory.'
+  }
+}
 
 function Assert-NoReparseAncestors([string]$Path) {
   $candidate = $Path
@@ -132,6 +144,7 @@ function Set-PrivateServerDirectory {
       }
     } else { $null = New-Item -ItemType Directory -Path $directory }
     $acl = New-Object Security.AccessControl.DirectorySecurity
+    $acl.SetOwner((New-Object Security.Principal.SecurityIdentifier('S-1-5-32-544')))
     $acl.SetAccessRuleProtection($true, $false)
     foreach ($identity in @('S-1-5-18', 'S-1-5-32-544')) {
       $sid = New-Object Security.Principal.SecurityIdentifier($identity)

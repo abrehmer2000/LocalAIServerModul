@@ -53,6 +53,11 @@ $serverInstall = Join-Path $env:ProgramFiles 'KI-Basis'
 $serverData = Join-Path $env:ProgramData 'KI-Basis/desktop'
 Assert (-not (Test-Path -LiteralPath $desktopData)) 'Desktop smoke needs clean runner data.'
 Assert (-not (Test-Path -LiteralPath $serverData)) 'Server smoke needs clean runner data.'
+$unsafeServerInstall = Join-Path $root 'KI-Basis Unsafe Server'
+$rejected = Start-Process -FilePath $Installer -ArgumentList "/ALLUSERS /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /SP- /DIR=`"$unsafeServerInstall`"" -Wait -PassThru
+Assert ($rejected.ExitCode -ne 0) 'Server installer accepted an executable directory outside Program Files.'
+Assert (-not (Test-Path -LiteralPath (Join-Path $unsafeServerInstall 'ki-basis.exe'))) 'Rejected server install copied executable files.'
+Assert ($null -eq (Get-Service $serviceName -ErrorAction SilentlyContinue)) 'Rejected server install created its service.'
 Run-Setup 'CURRENTUSER' $desktopInstall
 Assert ($null -eq (Get-Service $serviceName -ErrorAction SilentlyContinue)) 'Desktop install created a system service.'
 $process = Start-Process -FilePath (Join-Path $desktopInstall 'KI-Basis-Manager.exe') -ArgumentList "desktop --dir `"$desktopData`" --open-browser=false --quiet-setup" -PassThru
