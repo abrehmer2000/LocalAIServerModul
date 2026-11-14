@@ -1,7 +1,19 @@
 # Den ersten Server in Betrieb nehmen
 
-Diese Anleitung beschreibt den manuellen Pilotaufbau mit Gateway, Agent und einer separaten llama.cpp-Engine auf einem Server.
-Die Anwendung wird noch nicht als Systemdienst installiert. Die drei Prozesse muessen fuer den Test weiterlaufen.
+**Standardweg für einen neuen Windows-Rechner:**
+[Installation und erste Antwort](INSTALLATION.md). Das Setup bietet Desktop-
+oder ausdrücklich gewählten Serverbetrieb und eine gemeinsame lokale
+Einrichtung ohne Terminalbefehle, manuelles Öffnen von Zugangsdateien oder
+separate Laufzeitsuche. Native Windows-Abnahme und Codesignierungsstatus
+werden dort getrennt benannt.
+
+## Manueller Pilotaufbau für Administratoren
+
+Die folgenden Schritte sind eine Alternative für einen bewusst manuell
+verwalteten Aufbau mit Gateway, Agent und separater llama.cpp-Engine. Sie
+registrieren keinen Systemdienst. Deshalb müssen die drei manuell gestarteten
+Prozesse für diesen Test weiterlaufen. Nutze einen eigenen Datenordner und
+mische diesen Aufbau nicht mit der Standardinstallation.
 
 ## 1. Passendes Testpaket verwenden
 
@@ -59,7 +71,8 @@ Die Modelldateien stammen aus https://huggingface.co/google/gemma-4-26B-A4B-it-q
 Vor dem Download Speicherplatz und benoetigten RAM/VRAM anhand der gewaehlten Dateien pruefen.
 Fuer automatische Downloads direkt durch llama.cpp kann statt --model auch
 `-hf google/gemma-4-26B-A4B-it-qat-q4_0-gguf:Q4_0` verwendet werden, wenn diese Engine-Version das Repository unterstuetzt.
-Der Modelldownload ist noch keine Funktion unserer App.
+In diesem manuellen Ablauf beschaffst du das Modell selbst. Die geführte
+Standardinstallation kann es dagegen über die Oberfläche herunterladen.
 
 Fuer GPU-Ausfuehrung den passenden Build verwenden und --n-gpu-layers entsprechend anpassen.
 Startparameter und Hardwarepruefung stehen in PILOT-TEST.md. Zunaechst nur eine gleichzeitige Anfrage testen.

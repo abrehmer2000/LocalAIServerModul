@@ -1,17 +1,40 @@
 # Geführte Einrichtung für Cloud und On-Premises
 
+## Standardinstallation auf einem Rechner
+
+Für den normalen Windows-Erststart gilt
+[INSTALLATION.md](INSTALLATION.md): Setup-EXE, Startmenü, **Vorbereiten**,
+**Modell herunterladen und starten**, **Testantwort erzeugen**. Zentrale,
+Zertifikate, Zugänge und lokale Agent-Anmeldung werden gemeinsam vorbereitet;
+eine Verbindungsdatei muss dabei nicht kopiert werden.
+
+Dieser Standardweg verwendet eine geprüfte CPU-Laufzeit für Windows/Linux
+x64 und einen lokalen Anfrageplatz. Windows-Serverbetrieb wird im Installer
+ausdrücklich ausgewählt und benötigt Administratorrechte. Die erfolgreiche
+Installation allein ersetzt weder den Modelltest noch die Abmeldung-/
+Neustartprüfung. Details und noch offene Nachweise:
+[Abnahme](docs/installation/ACCEPTANCE.md).
+
+## Erweiterte Einrichtung: zusätzliche und entfernte Rechner
+
+Die weiteren Abschnitte beschreiben die vorhandene Agent-/SSH-Verwaltung,
+eigene Laufzeitpakete und individuelle Netzwerkwege. Sie sind keine
+zusätzlichen Pflichtschritte der Standardinstallation.
+
 Der Assistent benötigt keine Anbieter-API. Hostinger-VPS, Hetzner-VMs,
 dedizierte Server und eigene Linux-Rechner verwenden denselben SSH-Ablauf.
 Windows- und macOS-Rechner werden mit dem lokalen Agent-Paket verbunden.
 Gewöhnliches Webhosting ohne ausführbare eigene Prozesse ist kein Modellserver.
 
-## Einstieg ohne eingegebene Terminalbefehle
+## Einstieg in die erweiterte Agent-Verwaltung
 
-- **Mac:** `KI-Basis Manager.app` öffnen. Alternativ gibt es
-  `Server-einrichten.command`. Das Apple-Silicon-Paket enthält auch Linux-Agenten
+- **Mac:** `Server-einrichten.command` aus dem portablen Paket öffnen.
+  Das Apple-Silicon-Paket enthält auch Linux-Agenten
   für amd64 und arm64. Die App ist eine noch nicht notarierte Pilotversion.
-- **Windows:** `KI-Basis-Manager.exe` öffnen. Das Konsolenprogramm `ki-basis.exe`
-  bleibt für Administratoren und Automatisierung enthalten.
+- **Windows:** Für die Standardinstallation den Startmenüeintrag nach
+  [INSTALLATION.md](INSTALLATION.md) verwenden. Für die bisherige getrennte
+  Agent-Einrichtung bleibt `Start-Agent.cmd` im portablen Pilotpaket verfügbar;
+  Administratoren können außerdem `ki-basis.exe agent-ui` verwenden.
 - **Linux mit Desktop:** `Start-Agent.desktop` öffnen.
 - **Linux ohne Desktop:** Den SSH-Assistenten auf einem vorhandenen Manager
   verwenden. Für Cloud-init und eigene Verteilwerkzeuge gibt es zusätzlich
@@ -68,6 +91,10 @@ Agenten gegen dieselbe Identität zu starten.
 - Vorhandene Laufzeiten im Paket, PATH und bekannten Pilotpfaden werden gesucht.
   Ein vom Nutzer ausgewähltes ZIP/TAR.GZ-Laufzeitpaket kann im Browser importiert
   werden. Die Laufzeit wird mit `--version` gestartet, bevor sie angeboten wird.
+- Die neue gemeinsame lokale Einrichtung bietet zusätzlich den expliziten
+  Download aus einem festen CPU-Laufzeitkatalog. Quellen, Version und
+  SHA-256-Prüfung stehen in
+  [RUNTIME-CATALOG.md](docs/installation/RUNTIME-CATALOG.md).
 - Mitgelieferte Bibliotheken werden über die Umgebung des Modellprozesses
   gefunden. `ldconfig` oder globale Änderungen an Bibliothekspfaden entfallen.
 - Container erzeugen einen Speicherhinweis. Das ist keine Erkennung eines
@@ -75,9 +102,11 @@ Agenten gegen dieselbe Identität zu starten.
   Infrastruktur. Eine GPU-Erkennung ist ebenfalls kein Nachweis der Beschleunigung.
 
 **Bewusst keine automatische Änderung von GPU-Treibern, Firewallregeln oder
-Cloud-Verträgen.** Laufzeitpakete stammen aus einer vom Betreiber ausgewählten,
-vertrauenswürdigen Quelle. Die Anwendung lädt und startet keine beliebigen
-Programme aufgrund eines Modellauftrags der Zentrale.
+Cloud-Verträgen.** Eigene Laufzeitpakete stammen aus einer vom Betreiber
+ausgewählten Quelle. Automatische CPU-Downloads verwenden ausschließlich den
+anwendungseigenen festen Katalog nach ausdrücklicher Benutzeraktion.
+Die Anwendung lädt und startet keine beliebigen Programme aufgrund eines
+Modellauftrags der Zentrale.
 
 ## Linux-Server über SSH
 
@@ -223,7 +252,9 @@ Firewalländerung, VPN-Verteilung oder Treiberinstallation.
 Der Ablauf ist anbieterneutral, aber nicht jede Hardware ist getestet. Der
 Downloadkatalog enthält derzeit nur Gemma. Der allgemeine Gateway-Konfigurationsweg
 für bereits vorhandene Modell-APIs bleibt bestehen; ein grafischer Import solcher
-APIs ist noch nicht enthalten. Automatische Auswahl/Downloads signierter
-Laufzeitpakete, vollständige Windows-Systemdienste, native macOS-Intel-Pakete,
-Cloud-Ressourcenbeschaffung und universelle Netzwerkbereitstellung sind weitere
-Ausbauschritte. Die Oberfläche behauptet bei fehlender Unterstützung keinen Erfolg.
+APIs ist noch nicht enthalten. Die neue Standardinstallation integriert
+Windows-Systemdienste und feste CPU-Laufzeitdownloads; deren native
+Windows-/Neustartabnahme bleibt gesondert nachzuweisen. Signierte
+Produktinstaller, native macOS-Intel-Pakete, Cloud-Ressourcenbeschaffung und
+universelle Netzwerkbereitstellung sind weitere Ausbauschritte.
+Die Oberfläche behauptet bei fehlender Unterstützung keinen Erfolg.
