@@ -1,0 +1,43 @@
+name: Windows Installer
+on:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  install-upgrade-uninstall:
+    runs-on: windows-2025
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.27.x'
+          cache: true
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Locate Inno Setup
+        shell: powershell
+        run: |
+          $compiler = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $compiler)) {
+            choco install innosetup --version=6.5.4 --no-progress --yes
+            if ($LASTEXITCODE -ne 0) { throw 'Inno Setup installation failed' }
+          }
+      - name: Build unsigned test installer
+        shell: powershell
+        run: ./packaging/windows/Build-Installer.ps1
+      - name: Exercise both install modes and retained data
+        shell: powershell
+        run: |
+          $installer = Get-ChildItem work/windows-installer/output/*-setup.exe | Select-Object -First 1
+          ./packaging/windows/Test-Installer.ps1 -Installer $installer.FullName
+      - name: Upload unsigned installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: KI-Basis-Windows-Unsigned
+          path: |
+            work/windows-installer/output/*.exe
+            work/windows-installer/output/SHA256SUMS.txt
+          retention-days: 14
