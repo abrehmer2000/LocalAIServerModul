@@ -213,6 +213,7 @@ func (a *localAgent) importRuntime(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, binary, "--version")
+	configureRuntimeProbe(cmd)
 	cmd.Env = agent.RuntimeEnvironment(binary)
 	if cmd.Run() != nil {
 		writeLocalJSON(w, 400, map[string]string{"error": "runtime_incompatible"})

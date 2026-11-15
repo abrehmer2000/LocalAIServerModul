@@ -3,17 +3,26 @@
 
 # KI-Basis – lokaler LLM-Zugang
 
-Erste Implementierung eines OpenAI-kompatiblen Gateways für getrennte Kundeninstallationen.
+OpenAI-kompatibles Gateway für getrennte Kundeninstallationen mit geführter lokaler Einrichtung.
 Go, SQLite und vorhandene Inferenz-Engines; keine Usecase-Bewertung, keine Software-Lizenzprüfung, keine Telemetrie.
 
 ## Geführte Einrichtung
 
-Für die Bedienung ohne eingegebene Terminalbefehle siehe
-[SETUP-ASSISTENT.md](SETUP-ASSISTENT.md): fünf Schritte in der Zentrale,
-lokale Agent-Einrichtung mit Vorprüfung, anbieterneutraler Linux-SSH-Assistent,
-verwaltete SSH-Tunnel sowie Sicherung und Agent-Wiederherstellung.
-Die Unterstützung und noch vorhandenen Grenzen sind dort einzeln aufgeführt.
-Der Umfang wird jetzt eingefroren; Freigabekriterien und die nächsten Schritte stehen im [Produktionsplan](PRODUCTION-PLAN.md).
+**Neu auf einem Windows-Rechner: [Installation und erste Antwort](INSTALLATION.md).**
+Ein Setup-EXE installiert KI-Basis; der Startmenüeintrag öffnet die lokale
+Oberfläche. Laufzeit vorbereiten, Modell herunterladen, echte Testantwort
+erzeugen – ohne Terminalbefehle oder manuelle Schlüssel-/Zertifikatsübertragung.
+Desktop- und unbeaufsichtigter Serverbetrieb werden ausdrücklich unterschieden.
+
+Das Setup ist ein **unsignierter Testkandidat**. Native Windows-Installation,
+Update, Deinstallation und Neustart müssen durch die
+[Abnahme](docs/installation/ACCEPTANCE.md) belegt werden. Automatische
+CPU-Laufzeiten sind für Windows/Linux x64 hinterlegt; die Hardware- und
+Modellabnahme bleibt erforderlich.
+
+Für zusätzliche Rechner, SSH, eigene Laufzeiten und Sicherung siehe
+[erweiterte Einrichtung](SETUP-ASSISTENT.md). Freigabekriterien für die
+Kundenauslieferung stehen im [Produktionsplan](PRODUCTION-PLAN.md).
 
 ## Aktueller Umfang
 
@@ -36,7 +45,10 @@ Modell-Downloads mit Fortschritt und SHA-256-Prüfung, Start/Stopp eigener Model
 Audit-Ansicht und einen Streaming-API-Test. Administratorrechte sind von Anwendungs-Keys getrennt.
 Die lokale Agenteneinrichtung öffnet sich per Starter im Browser. Siehe [DASHBOARD-SETUP.md](DASHBOARD-SETUP.md).
 Vollständige Benutzerkontenverwaltung, zusätzliche Downloadkataloge, Embeddings, Tool-Calling,
-signierte Systeminstaller sowie automatische GPU-Treiberinstallation und eine automatische Auswahl vertrauenswürdiger Laufzeit-Downloads fehlen noch. Vom Betreiber ausgewählte Laufzeitarchive können bereits importiert werden.
+signierte Systeminstaller sowie automatische GPU-Treiberinstallation fehlen noch.
+Die lokale Einrichtung bietet einen festen, mit SHA-256 geprüften CPU-
+[Laufzeitkatalog](docs/installation/RUNTIME-CATALOG.md); eigene Laufzeitarchive
+können im erweiterten Manager importiert werden.
 Eine Kundenauslieferung benötigt weitere Betriebssystem-, Installations- und Sicherheitstests.
 
 ## Prozesslog-Gateway-Test
@@ -65,7 +77,11 @@ Windows PowerShell:
 go build -o bin/ki-basis.exe ./cmd/ki-basis
 ```
 
-## Erster echter Modellaufruf
+## Manueller Modellaufruf für Administratoren
+
+Für den normalen Erststart verwende [INSTALLATION.md](INSTALLATION.md).
+Die folgenden Befehle beschreiben eine getrennte, manuell konfigurierte
+Gateway-/Engine-Installation und sind keine Voraussetzung des Setup-EXE.
 
 1. Eine aktuelle llama.cpp-Version mit `llama-server` und ein dazu passendes GGUF-Modell bereitstellen.
    Modellquelle und Modelllizenz prüfen. Engine-Version und SHA-256 der Gewichte dokumentieren.

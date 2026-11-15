@@ -18,6 +18,7 @@ import (
 	"localaiserver/internal/control"
 	"localaiserver/internal/gateway"
 	"localaiserver/internal/pki"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -38,6 +39,8 @@ type fixture struct {
 	control *control.Service
 	server  *httptest.Server
 	client  *http.Client
+	mux     *http.ServeMux
+	stop    func()
 }
 
 func setup(t *testing.T) *fixture {
@@ -54,25 +57,60 @@ func setup(t *testing.T) *fixture {
 		t.Fatal(err)
 	}
 	f := &fixture{t: t, dir: dir, c: c, store: store}
+	t.Cleanup(func() {
+		if err := store.Close(); err != nil {
+			t.Errorf("audit store shutdown failed after fixture users stopped: %v", err)
+		}
+	})
 	f.start()
-	t.Cleanup(func() { f.server.Close(); f.g.Close(); f.control.Close(); store.Close() })
 	return f
 }
 func (f *fixture) start() {
+	ctx, cancel := context.WithCancel(context.Background())
+	var ownedGateway *gateway.Gateway
+	var ownedControl *control.Service
+	var ownedServer *httptest.Server
+	var ownedClient *http.Client
+	var stopped sync.Once
+	// Each generation owns its cleanup. Restarting the fixture must not redirect
+	// an older cleanup closure to the new server or lose its long-poll context.
+	f.stop = func() {
+		stopped.Do(func() {
+			cancel()
+			if ownedControl != nil {
+				ownedControl.Close()
+			}
+			if ownedClient != nil {
+				ownedClient.CloseIdleConnections()
+			}
+			if ownedServer != nil {
+				ownedServer.Close()
+			}
+			if ownedGateway != nil {
+				ownedGateway.Close()
+			}
+		})
+	}
+	f.t.Cleanup(f.stop)
 	var err error
 	f.g, err = gateway.New(f.c, f.store)
 	if err != nil {
 		f.t.Fatal(err)
 	}
+	ownedGateway = f.g
 	f.control, err = control.New(f.c, f.store, f.g.Pool())
 	if err != nil {
 		f.t.Fatal(err)
 	}
+	ownedControl = f.control
 	mux := http.NewServeMux()
+	f.mux = mux
 	mux.Handle("/internal/", f.control.Handler())
 	mux.Handle("/admin/", f.g.Admin(f.control.AdminHandler()))
 	mux.Handle("/", f.g.Handler())
 	f.server = httptest.NewUnstartedServer(mux)
+	ownedServer = f.server
+	f.server.Config.BaseContext = func(net.Listener) context.Context { return ctx }
 	tc := f.control.TLSConfig()
 	pair, err := tls.LoadX509KeyPair(f.c.TLSCert, f.c.TLSKey)
 	if err != nil {
@@ -84,6 +122,7 @@ func (f *fixture) start() {
 	data, _ := os.ReadFile(f.c.ControlCACert)
 	roots, _ := pki.Roots(data)
 	f.client = &http.Client{Transport: &http.Transport{TLSClientConfig: &tls.Config{RootCAs: roots}}, Timeout: 5 * time.Second}
+	ownedClient = f.client
 }
 func (f *fixture) grant(n config.Node, token string, expires time.Time) {
 	f.t.Helper()
@@ -227,14 +266,15 @@ func TestEnrollmentTLSReadinessRevocationAndRestart(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	f.t.Cleanup(f.g.Close)
 	fresh, err := control.New(f.c, f.store, f.g.Pool())
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer fresh.Close()
 	if chosen, _ := f.g.Pool().Acquire("chat"); chosen != nil {
 		t.Fatal("persisted node ready without heartbeat")
 	}
-	_ = fresh
 	if err = f.store.Revoke(context.Background(), n.ID, "local-os:test"); err != nil {
 		t.Fatal(err)
 	}

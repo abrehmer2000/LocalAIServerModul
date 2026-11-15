@@ -69,6 +69,7 @@ func inspectSetup(ctx context.Context, settings agentSettings, bundle *control.B
 		} else {
 			c, cancel := context.WithTimeout(ctx, 5*time.Second)
 			command := exec.CommandContext(c, settings.Binary, "--version")
+			configureRuntimeProbe(command)
 			command.Env = agent.RuntimeEnvironment(settings.Binary)
 			// Version probes never expose raw runtime output in the setup API.
 			e = command.Run()

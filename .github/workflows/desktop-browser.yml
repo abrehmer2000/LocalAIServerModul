@@ -1,0 +1,30 @@
+name: Desktop onboarding browser
+on:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  browser:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install browser test tools
+        run: |
+          npm install --prefix work/browser-tools --no-audit --no-fund playwright@1.62.1 @axe-core/playwright@4.10.2
+          work/browser-tools/node_modules/.bin/playwright install --with-deps chromium
+      - name: Exercise first-run UI and accessibility
+        env:
+          NODE_PATH: ${{ github.workspace }}/work/browser-tools/node_modules
+          KI_DESKTOP_SCREENSHOT: ${{ github.workspace }}/work/desktop-first-run.png
+          KI_DESKTOP_MOBILE_SCREENSHOT: ${{ github.workspace }}/work/desktop-mobile.png
+        run: node scripts/desktop_browser_test.cjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: Desktop-onboarding-preview
+          path: work/desktop-*.png

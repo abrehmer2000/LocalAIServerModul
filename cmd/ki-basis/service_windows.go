@@ -81,8 +81,8 @@ func serviceCommandMain(args []string) error {
 		}
 		return svc.Run(*name, windowsService{command})
 	}
-	if action != "install" || len(command) == 0 || (command[0] != "serve" && command[0] != "agent-ui" && command[0] != "agent") {
-		return errors.New("service install requires serve, agent-ui or agent run")
+	if action != "install" || len(command) == 0 || (command[0] != "serve" && command[0] != "agent-ui" && command[0] != "agent" && command[0] != "desktop") {
+		return errors.New("service install requires serve, desktop, agent-ui or agent run")
 	}
 	executable, err := os.Executable()
 	if err != nil {
@@ -111,8 +111,18 @@ func serviceCommandMain(args []string) error {
 		return err
 	}
 	defer s.Close()
+	installed := false
+	defer func() {
+		if !installed {
+			_ = s.Delete()
+		}
+	}()
 	if err = s.SetRecoveryActionsOnNonCrashFailures(true); err != nil {
 		return err
 	}
-	return s.SetRecoveryActions([]mgr.RecoveryAction{{Type: mgr.ServiceRestart, Delay: 5 * time.Second}, {Type: mgr.ServiceRestart, Delay: 10 * time.Second}, {Type: mgr.ServiceRestart, Delay: 30 * time.Second}}, 86400)
+	if err = s.SetRecoveryActions([]mgr.RecoveryAction{{Type: mgr.ServiceRestart, Delay: 5 * time.Second}, {Type: mgr.ServiceRestart, Delay: 10 * time.Second}, {Type: mgr.ServiceRestart, Delay: 30 * time.Second}}, 86400); err != nil {
+		return err
+	}
+	installed = true
+	return nil
 }

@@ -36,9 +36,7 @@ func (f *fixture) admin(method, path, body string) (int, []byte) {
 }
 func adminFixture(t *testing.T) *fixture {
 	f := setup(t)
-	f.server.Close()
-	f.g.Close()
-	f.control.Close()
+	f.stop()
 	f.c.Keys[0].Admin = true
 	f.start()
 	return f
@@ -135,9 +133,7 @@ func TestAdminRequiresPrivilegeAndBundleDoesNotLeakSecrets(t *testing.T) {
 	if status, _ := f.admin("POST", "/admin/enroll", `{}`); status != 403 {
 		t.Fatalf("ordinary key status %d", status)
 	}
-	f.server.Close()
-	f.g.Close()
-	f.control.Close()
+	f.stop()
 	f.c.Keys[0].Admin = true
 	f.start()
 	body, _ := json.Marshal(map[string]any{"id": "test-node", "gateway": f.server.URL, "model": catalog.DefaultAlias})
@@ -171,9 +167,7 @@ func TestOutboundLongImageRequestAndRetryAfter(t *testing.T) {
 		t.Skip("31-second outbound inference regression")
 	}
 	f := adminFixture(t)
-	f.server.Close()
-	f.g.Close()
-	f.control.Close()
+	f.stop()
 	f.c.TimeoutSeconds = 60
 	f.c.MaxBodyBytes = 16 << 20
 	f.start()
