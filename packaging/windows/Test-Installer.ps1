@@ -87,13 +87,31 @@ Uninstall $desktopInstall
 Assert ($null -eq (Get-ItemProperty -LiteralPath $runKey -Name 'KI-Basis-Desktop' -ErrorAction SilentlyContinue)) 'Desktop uninstall left its own autostart registration.'
 Assert ((Data-Fingerprints $desktopData) -eq $fingerprints) 'Desktop uninstall removed persistent data.'
 
+$sentinelDirectory = Join-Path $serverData 'central'
+$sentinel = Join-Path $sentinelDirectory 'config.json'
+$null = New-Item -ItemType Directory -Path $sentinelDirectory -Force
+[IO.File]::WriteAllText($sentinel, 'deliberately invalid test configuration')
+$sentinelHash = (Get-FileHash -LiteralPath $sentinel -Algorithm SHA256).Hash
+$failedSetupLog = Join-Path $root 'KI-Basis-FAILED-SERVER-setup.log'
+$failedSetup = Start-Process -FilePath $Installer -ArgumentList "/ALLUSERS /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /SP- /DIR=`"$serverInstall`" /LOG=`"$failedSetupLog`"" -Wait -PassThru
+Assert ($failedSetup.ExitCode -ne 0) 'Server setup reported success after a service startup failure.'
+Assert ((Get-FileHash -LiteralPath $sentinel -Algorithm SHA256).Hash -eq $sentinelHash) 'Failed server setup modified existing configuration.'
+Assert ($null -eq (Get-Service $serviceName -ErrorAction SilentlyContinue)) 'Failed first setup left a broken boot-enabled service.'
+# This fixture was created above after requiring clean data. Delete only known
+# fixture files and then require empty directories before the normal repair run.
+Remove-Item -LiteralPath $sentinel
+$fixtureLock = Join-Path $serverData '.desktop.lock'
+if (Test-Path -LiteralPath $fixtureLock) { Remove-Item -LiteralPath $fixtureLock -Force }
+[IO.Directory]::Delete($sentinelDirectory, $false)
+[IO.Directory]::Delete($serverData, $false)
 Run-Setup 'ALLUSERS' $serverInstall
 $service = Get-CimInstance Win32_Service -Filter "Name='$serviceName'"
 if ($null -eq $service -or $service.StartMode -ne 'Auto') {
   if ($null -eq $service) { Write-Output 'Expected KI-Basis service is absent.' }
-  else { $service | Select-Object Name,StartMode,State,PathName | Format-List }
+  else { $service | Select-Object Name,StartMode,State | Format-List }
   Get-Content -LiteralPath (Join-Path $root 'KI-Basis-ALLUSERS-setup.log') -Tail 100
 }
+Assert ($null -ne $service) 'Server setup did not leave its expected service installed.'
 Assert ($service.StartMode -eq 'Auto') 'Server service is not boot enabled.'
 Assert ($service.StartName -eq "NT SERVICE\$serviceName") 'Server runs with an unexpected service account.'
 $null = Wait-Ready $serverData

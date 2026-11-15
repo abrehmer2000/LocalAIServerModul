@@ -6,6 +6,13 @@ param(
   [Parameter(Mandatory=$true)][string]$Version
 )
 $ErrorActionPreference = 'Stop'
+$script:LifecycleStage = 'validate_paths'
+trap {
+  # Session/configuration parse errors can contain private file contents. Only
+  # fixed stage names and the exception class belong in installer diagnostics.
+  Write-Output ('KI-Basis lifecycle failure: ' + $script:LifecycleStage + '; exception: ' + $_.Exception.GetType().Name)
+  exit 1
+}
 $ServiceName = 'KI-Basis-Desktop'
 $Executable = Join-Path $InstallDirectory 'ki-basis.exe'
 $Manager = Join-Path $InstallDirectory 'KI-Basis-Manager.exe'
@@ -61,6 +68,7 @@ function Get-OwnedService {
 }
 
 function Stop-OwnedService {
+  $script:LifecycleStage = 'service_stop'
   $owned = Get-OwnedService
   if ($null -eq $owned) { return }
   $service = Get-Service -Name $ServiceName
@@ -96,6 +104,7 @@ function Invoke-LocalApi([Uri]$Base, [string]$Token, [string]$Path, [string]$Met
 }
 
 function Stop-OwnedDesktop {
+  $script:LifecycleStage = 'desktop_stop'
   if (-not (Test-Path -LiteralPath $SessionPath)) { return }
   $session = Get-Content -LiteralPath $SessionPath -Raw | ConvertFrom-Json
   $uri = [Uri]$session.url
@@ -130,6 +139,7 @@ function Stop-OwnedDesktop {
 }
 
 function Set-PrivateServerDirectory {
+  $script:LifecycleStage = 'server_data_acl'
   $inheritance = [Security.AccessControl.InheritanceFlags]'ContainerInherit,ObjectInherit'
   $propagation = [Security.AccessControl.PropagationFlags]::None
   $serviceSid = (New-Object Security.Principal.NTAccount("NT SERVICE\$ServiceName")).Translate([Security.Principal.SecurityIdentifier])
@@ -159,6 +169,7 @@ function Set-PrivateServerDirectory {
 }
 
 function Set-OwnedAutostart([bool]$Enabled) {
+  $script:LifecycleStage = 'desktop_autostart'
   if ($Mode -ne 'Desktop') { throw 'User autostart belongs to desktop mode only.' }
   $keyPath = 'Software\Microsoft\Windows\CurrentVersion\Run'
   $key = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey($keyPath, $true)
@@ -188,6 +199,7 @@ if ($Action -eq 'AutostartOn' -or $Action -eq 'AutostartOff') {
 }
 
 if ($Action -eq 'Prepare') {
+  $script:LifecycleStage = 'version_check'
   $versionFile = Join-Path $InstallDirectory 'APP-VERSION.txt'
   if (Test-Path -LiteralPath $versionFile) {
     $installedVersion = [version]((Get-Content -LiteralPath $versionFile -Raw).Trim() -replace '[-+].*$', '')
@@ -214,14 +226,17 @@ if ($Action -eq 'Uninstall') {
 if ($Mode -ne 'Server') { exit 0 }
 $created = $false
 try {
+  $script:LifecycleStage = 'service_registration'
   if ($null -eq (Get-OwnedService)) {
-    & $Executable service install --name $ServiceName -- desktop --dir $DataDirectory --open-browser=false --quiet-setup --service-mode
+    & $Executable service install --name $ServiceName -- desktop --dir $DataDirectory --open-browser=false --quiet-setup --service-mode 2>&1 | Out-Null
     if ($LASTEXITCODE -ne 0) { throw 'The KI-Basis server service could not be installed.' }
     $created = $true
   }
   Set-PrivateServerDirectory
+  $script:LifecycleStage = 'service_start'
   Start-Service -Name $ServiceName -ErrorAction Stop
   (Get-Service -Name $ServiceName).WaitForStatus('Running', [TimeSpan]::FromSeconds(45))
+  $script:LifecycleStage = 'service_readiness'
   $deadline = [DateTime]::UtcNow.AddSeconds(60)
   do {
     if (Test-Path -LiteralPath $SessionPath) {
