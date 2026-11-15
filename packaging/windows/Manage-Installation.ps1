@@ -1,5 +1,5 @@
 param(
-  [Parameter(Mandatory=$true)][ValidateSet('Prepare','Install','Uninstall')][string]$Action,
+  [Parameter(Mandatory=$true)][ValidateSet('Prepare','Install','Uninstall','AutostartOn','AutostartOff')][string]$Action,
   [Parameter(Mandatory=$true)][ValidateSet('Desktop','Server')][string]$Mode,
   [Parameter(Mandatory=$true)][string]$InstallDirectory,
   [Parameter(Mandatory=$true)][string]$DataDirectory,
@@ -155,6 +155,35 @@ function Set-PrivateServerDirectory {
   }
 }
 
+function Set-OwnedAutostart([bool]$Enabled) {
+  if ($Mode -ne 'Desktop') { throw 'User autostart belongs to desktop mode only.' }
+  $keyPath = 'Software\Microsoft\Windows\CurrentVersion\Run'
+  $key = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey($keyPath, $true)
+  if ($null -eq $key -and $Enabled) { $key = [Microsoft.Win32.Registry]::CurrentUser.CreateSubKey($keyPath) }
+  if ($null -eq $key) { return }
+  try {
+    $value = $key.GetValue('KI-Basis-Desktop', $null, [Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames)
+    $owned = $false
+    if ($value -is [string] -and $value -match '^"([^"]+)"\s+desktop(?:\s|$)') {
+      $owned = [string]::Equals($Matches[1], $Manager, [StringComparison]::OrdinalIgnoreCase)
+    }
+    if ($Enabled) {
+      if ($null -ne $value -and -not $owned) { throw 'Autostart is registered to another installation. Keep its entry or remove it explicitly first.' }
+      $command = '"' + $Manager + '" desktop --dir "' + $DataDirectory + '" --open-browser=false --quiet-setup'
+      $key.SetValue('KI-Basis-Desktop', $command, [Microsoft.Win32.RegistryValueKind]::String)
+    } elseif ($owned) {
+      # Unchecking the upgrade task must take effect without deleting another
+      # installation's registration that may have replaced this shared name.
+      $key.DeleteValue('KI-Basis-Desktop', $false)
+    }
+  } finally { $key.Dispose() }
+}
+
+if ($Action -eq 'AutostartOn' -or $Action -eq 'AutostartOff') {
+  Set-OwnedAutostart ($Action -eq 'AutostartOn')
+  exit 0
+}
+
 if ($Action -eq 'Prepare') {
   $versionFile = Join-Path $InstallDirectory 'APP-VERSION.txt'
   if (Test-Path -LiteralPath $versionFile) {
@@ -172,7 +201,10 @@ if ($Action -eq 'Uninstall') {
       & "$env:SystemRoot\System32\sc.exe" delete $ServiceName | Out-Null
       if ($LASTEXITCODE -ne 0) { throw 'The KI-Basis service could not be removed.' }
     }
-  } else { Stop-OwnedDesktop }
+  } else {
+    Stop-OwnedDesktop
+    Set-OwnedAutostart $false
+  }
   # Program removal intentionally leaves models, certificates, audit and backups.
   exit 0
 }

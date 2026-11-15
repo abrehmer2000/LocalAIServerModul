@@ -5,8 +5,8 @@ $serviceName = 'KI-Basis-Desktop'
 $root = if ($env:RUNNER_TEMP) { $env:RUNNER_TEMP } else { [IO.Path]::GetTempPath() }
 
 function Assert([bool]$Condition, [string]$Message) { if (-not $Condition) { throw $Message } }
-function Run-Setup([string]$Mode, [string]$Directory) {
-  $arguments = "/$Mode /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /SP- /DIR=`"$Directory`" /LOG=`"$(Join-Path $root "KI-Basis-$Mode-setup.log")`""
+function Run-Setup([string]$Mode, [string]$Directory, [string]$Tasks = '') {
+  $arguments = "/$Mode /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /SP- /DIR=`"$Directory`" /TASKS=`"$Tasks`" /LOG=`"$(Join-Path $root "KI-Basis-$Mode-setup.log")`""
   $process = Start-Process -FilePath $Installer -ArgumentList $arguments -Wait -PassThru
   Assert ($process.ExitCode -eq 0) "Installer failed ($Mode), exit $($process.ExitCode)."
 }
@@ -58,7 +58,9 @@ $rejected = Start-Process -FilePath $Installer -ArgumentList "/ALLUSERS /VERYSIL
 Assert ($rejected.ExitCode -ne 0) 'Server installer accepted an executable directory outside Program Files.'
 Assert (-not (Test-Path -LiteralPath (Join-Path $unsafeServerInstall 'ki-basis.exe'))) 'Rejected server install copied executable files.'
 Assert ($null -eq (Get-Service $serviceName -ErrorAction SilentlyContinue)) 'Rejected server install created its service.'
-Run-Setup 'CURRENTUSER' $desktopInstall
+$runKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run'
+Run-Setup 'CURRENTUSER' $desktopInstall 'startonlogin'
+Assert ((Get-ItemPropertyValue -LiteralPath $runKey -Name 'KI-Basis-Desktop').Contains($desktopInstall)) 'Selected autostart was not registered.'
 Assert ($null -eq (Get-Service $serviceName -ErrorAction SilentlyContinue)) 'Desktop install created a system service.'
 $process = Start-Process -FilePath (Join-Path $desktopInstall 'KI-Basis-Manager.exe') -ArgumentList "desktop --dir `"$desktopData`" --open-browser=false --quiet-setup" -PassThru
 $first = Wait-Ready $desktopData
@@ -68,11 +70,20 @@ $reopen = Start-Process -FilePath (Join-Path $desktopInstall 'ki-basis.exe') -Ar
 Assert ($reopen.ExitCode -eq 0) 'Second launch failed to reuse installation.'
 Assert ((Request-Status $desktopData).process_id -eq $first.process_id) 'Second launch duplicated the daemon.'
 Run-Setup 'CURRENTUSER' $desktopInstall
+Assert ($null -eq (Get-ItemProperty -LiteralPath $runKey -Name 'KI-Basis-Desktop' -ErrorAction SilentlyContinue)) 'Unchecking autostart during upgrade left its registration enabled.'
 Assert ($process.WaitForExit(10000)) 'Upgrade did not finish stopping the old process.'
 Assert ((Data-Fingerprints $desktopData) -eq $fingerprints) 'Desktop upgrade changed persistent identity.'
+$otherRegistration = '"C:\Other Installation\KI-Basis-Manager.exe" desktop --open-browser=false'
+Set-ItemProperty -LiteralPath $runKey -Name 'KI-Basis-Desktop' -Value $otherRegistration
+try {
+  & (Join-Path $desktopInstall 'Manage-Installation.ps1') -Action AutostartOff -Mode Desktop -InstallDirectory $desktopInstall -DataDirectory $desktopData -Version '0.3.0'
+  Assert ((Get-ItemPropertyValue -LiteralPath $runKey -Name 'KI-Basis-Desktop') -eq $otherRegistration) 'Autostart removal changed another installation registration.'
+} finally { Remove-ItemProperty -LiteralPath $runKey -Name 'KI-Basis-Desktop' -ErrorAction SilentlyContinue }
+Run-Setup 'CURRENTUSER' $desktopInstall 'startonlogin'
 $null = Start-Process -FilePath (Join-Path $desktopInstall 'KI-Basis-Manager.exe') -ArgumentList "desktop --dir `"$desktopData`" --open-browser=false --quiet-setup" -PassThru
 $null = Wait-Ready $desktopData
 Uninstall $desktopInstall
+Assert ($null -eq (Get-ItemProperty -LiteralPath $runKey -Name 'KI-Basis-Desktop' -ErrorAction SilentlyContinue)) 'Desktop uninstall left its own autostart registration.'
 Assert ((Data-Fingerprints $desktopData) -eq $fingerprints) 'Desktop uninstall removed persistent data.'
 
 Run-Setup 'ALLUSERS' $serverInstall
