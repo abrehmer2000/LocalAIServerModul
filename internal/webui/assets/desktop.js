@@ -56,6 +56,8 @@
       "Der lokale Zugang ist abgelaufen. Öffne KI-Basis erneut über das Startmenü.",
     desktop_operation_cancelled:
       "Der Vorgang wurde abgebrochen. Deine vorhandene Einrichtung bleibt erhalten; du kannst erneut starten.",
+    desktop_operation_timed_out:
+      "Der Vorgang hat zu lange gedauert. Prüfe den Modellstatus und wiederhole ihn. Deine vorhandene Einrichtung bleibt erhalten.",
     desktop_model_not_ready:
       "Das Modell ist noch nicht bereit. Warte auf das Laden oder starte es erneut.",
     desktop_test_failed:
