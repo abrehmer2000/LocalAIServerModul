@@ -11,22 +11,55 @@ function Run-Setup([string]$Mode, [string]$Directory, [string]$Tasks = '') {
   if ($process.ExitCode -ne 0) { Get-Content -LiteralPath (Join-Path $root "KI-Basis-$Mode-setup.log") -Tail 100 }
   Assert ($process.ExitCode -eq 0) "Installer failed ($Mode), exit $($process.ExitCode)."
 }
-function Request-Status([string]$Directory) {
-  $path = Join-Path $Directory '.desktop-session.json'
-  if (-not (Test-Path -LiteralPath $path)) { return $null }
-  $session = Get-Content -LiteralPath $path -Raw | ConvertFrom-Json
-  $request = [Net.HttpWebRequest]::Create($session.url + '/desktop/status')
+function Request-Desktop([string]$Directory, [string]$Path, [ValidateSet('GET','POST')][string]$Method = 'GET') {
+  $sessionFile = Join-Path $Directory '.desktop-session.json'
+  if (-not (Test-Path -LiteralPath $sessionFile)) { return $null }
+  $session = Get-Content -LiteralPath $sessionFile -Raw | ConvertFrom-Json
+  $base = [Uri]$session.url
+  if ($base.Scheme -ne 'http' -or $base.Host -ne '127.0.0.1' -or
+      $base.UserInfo -or $base.Query -or $base.Fragment -or $base.AbsolutePath -ne '/' -or
+      $session.token -notmatch '^[a-f0-9]{64}$') { throw 'Invalid private desktop session.' }
+  if ($Path -notin @('/desktop/status','/desktop/prepare')) { throw 'Unexpected desktop test endpoint.' }
+  $request = [Net.HttpWebRequest]::Create([Uri]::new($base, $Path))
+  $request.Method = $Method
   $request.Proxy = $null
-  $request.Timeout = 3000
+  $request.Timeout = 5000
   $request.AllowAutoRedirect = $false
   $request.Headers.Add('X-Desktop-Token', $session.token)
+  if ($Method -eq 'POST') { $request.ContentLength = 0 }
   $response = $request.GetResponse()
   try {
     $reader = New-Object IO.StreamReader($response.GetResponseStream())
-    try { $status = $reader.ReadToEnd() | ConvertFrom-Json } finally { $reader.Dispose() }
+    try {
+      $buffer = New-Object char[] 1048577
+      $count = $reader.ReadBlock($buffer, 0, $buffer.Length)
+      if ($count -gt 1048576) { throw 'Desktop test response exceeded its limit.' }
+      return [string]::new($buffer, 0, $count) | ConvertFrom-Json
+    } finally { $reader.Dispose() }
   } finally { $response.Dispose() }
+}
+function Request-Status([string]$Directory) {
+  $status = Request-Desktop $Directory '/desktop/status'
+  if ($null -eq $status) { return $null }
   Assert ($status.data_directory -eq $Directory) 'Wrong installation answered status.'
   return $status
+}
+function Prepare-WindowsRuntime([string]$Directory) {
+  $accepted = Request-Desktop $Directory '/desktop/prepare' 'POST'
+  Assert ($accepted.accepted -eq $true) 'Desktop runtime preparation was not accepted.'
+  $deadline = [DateTime]::UtcNow.AddSeconds(180)
+  do {
+    $status = Request-Status $Directory
+    if ($null -ne $status) {
+      if ($status.error) {
+        $code = if ($status.error -match '^[a-z0-9_]{1,80}$') { $status.error } else { 'unexpected_error' }
+        throw "Pinned Windows runtime preparation failed: $code."
+      }
+      if (-not $status.busy -and $status.connected -and $status.runtime.installed) { return }
+    }
+    Start-Sleep -Milliseconds 500
+  } while ([DateTime]::UtcNow -lt $deadline)
+  throw 'Pinned Windows runtime preparation did not finish within 180 seconds.'
 }
 function Wait-Ready([string]$Directory) {
   $deadline = [DateTime]::UtcNow.AddSeconds(60)
@@ -37,7 +70,7 @@ function Wait-Ready([string]$Directory) {
   throw 'Installed application did not become reachable.'
 }
 function Data-Fingerprints([string]$Directory) {
-  $files = @(Get-ChildItem -LiteralPath $Directory -Recurse -File | Where-Object { $_.Name -in @('config.json','ca.crt') })
+  $files = @(Get-ChildItem -LiteralPath $Directory -Recurse -File | Where-Object { $_.Name -in @('config.json','ca.crt','agent.json','llama-server.exe') })
   Assert ($files.Count -ge 2) 'No persistent central identity/configuration was created.'
   return @($files | Sort-Object FullName | ForEach-Object { (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash }) -join ','
 }
@@ -66,6 +99,13 @@ Assert ($null -eq (Get-Service $serviceName -ErrorAction SilentlyContinue)) 'Des
 $process = Start-Process -FilePath (Join-Path $desktopInstall 'KI-Basis-Manager.exe') -ArgumentList "desktop --dir `"$desktopData`" --open-browser=false --quiet-setup" -PassThru
 $first = Wait-Ready $desktopData
 Assert ([int]$first.process_id -eq $process.Id) 'Wrong desktop process owns the session.'
+Prepare-WindowsRuntime $desktopData
+$agentIdentity = Join-Path $desktopData 'agent/agent.json'
+Assert (Test-Path -LiteralPath $agentIdentity) 'Automatic local enrollment did not persist its agent identity.'
+$runtimeSettings = Get-Content -LiteralPath (Join-Path $desktopData 'agent/settings.json') -Raw | ConvertFrom-Json
+Assert (Test-Path -LiteralPath $runtimeSettings.binary) 'Verified runtime executable was not retained.'
+Assert ((Get-FileHash -LiteralPath $runtimeSettings.binary -Algorithm SHA256).Hash -eq $runtimeSettings.runtime.engine_sha256) 'Persisted runtime pin does not match the verified executable.'
+Write-Output 'PASS: pinned Windows CPU runtime downloaded, verified/probed and local agent enrolled without model weights.'
 $fingerprints = Data-Fingerprints $desktopData
 $reopen = Start-Process -FilePath (Join-Path $desktopInstall 'ki-basis.exe') -ArgumentList "desktop --dir `"$desktopData`" --open-browser=false --quiet-setup" -PassThru -Wait
 Assert ($reopen.ExitCode -eq 0) 'Second launch failed to reuse installation.'
