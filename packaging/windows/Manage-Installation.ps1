@@ -150,7 +150,10 @@ function Set-PrivateServerDirectory {
       $sid = New-Object Security.Principal.SecurityIdentifier($identity)
       $acl.AddAccessRule((New-Object Security.AccessControl.FileSystemAccessRule($sid, 'FullControl', $inheritance, $propagation, 'Allow')))
     }
-    $acl.AddAccessRule((New-Object Security.AccessControl.FileSystemAccessRule($serviceSid, 'Modify', $inheritance, $propagation, 'Allow')))
+    # The application re-protects its own root before opening credentials; that
+    # requires WRITE_DAC. The service has no such right on the application parent.
+    $serviceRights = if ($directory -eq $DataDirectory) { 'FullControl' } else { 'Modify' }
+    $acl.AddAccessRule((New-Object Security.AccessControl.FileSystemAccessRule($serviceSid, $serviceRights, $inheritance, $propagation, 'Allow')))
     Set-Acl -LiteralPath $directory -AclObject $acl
   }
 }

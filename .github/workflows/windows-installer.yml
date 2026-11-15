@@ -41,3 +41,11 @@ jobs:
             work/windows-installer/output/*.exe
             work/windows-installer/output/SHA256SUMS.txt
           retention-days: 14
+      - name: Upload installer diagnostics on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: KI-Basis-Installer-Diagnostics
+          path: ${{ runner.temp }}/KI-Basis-*-setup.log
+          if-no-files-found: ignore
+          retention-days: 7

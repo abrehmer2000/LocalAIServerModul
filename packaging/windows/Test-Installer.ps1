@@ -8,6 +8,7 @@ function Assert([bool]$Condition, [string]$Message) { if (-not $Condition) { thr
 function Run-Setup([string]$Mode, [string]$Directory, [string]$Tasks = '') {
   $arguments = "/$Mode /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /SP- /DIR=`"$Directory`" /TASKS=`"$Tasks`" /LOG=`"$(Join-Path $root "KI-Basis-$Mode-setup.log")`""
   $process = Start-Process -FilePath $Installer -ArgumentList $arguments -Wait -PassThru
+  if ($process.ExitCode -ne 0) { Get-Content -LiteralPath (Join-Path $root "KI-Basis-$Mode-setup.log") -Tail 100 }
   Assert ($process.ExitCode -eq 0) "Installer failed ($Mode), exit $($process.ExitCode)."
 }
 function Request-Status([string]$Directory) {
@@ -88,6 +89,11 @@ Assert ((Data-Fingerprints $desktopData) -eq $fingerprints) 'Desktop uninstall r
 
 Run-Setup 'ALLUSERS' $serverInstall
 $service = Get-CimInstance Win32_Service -Filter "Name='$serviceName'"
+if ($null -eq $service -or $service.StartMode -ne 'Auto') {
+  if ($null -eq $service) { Write-Output 'Expected KI-Basis service is absent.' }
+  else { $service | Select-Object Name,StartMode,State,PathName | Format-List }
+  Get-Content -LiteralPath (Join-Path $root 'KI-Basis-ALLUSERS-setup.log') -Tail 100
+}
 Assert ($service.StartMode -eq 'Auto') 'Server service is not boot enabled.'
 Assert ($service.StartName -eq "NT SERVICE\$serviceName") 'Server runs with an unexpected service account.'
 $null = Wait-Ready $serverData

@@ -88,6 +88,9 @@ Filename: {app}\KI-Basis-Manager.exe; Parameters: "desktop --dir ""{userappdata}
 Filename: {app}\KI-Basis-Server.exe; Description: KI-Basis Serververwaltung öffnen; Check: IsServerMode; Flags: nowait postinstall skipifsilent
 
 [Code]
+var
+  InstallationFailed: Boolean;
+
 function IsServerMode: Boolean;
 begin
   Result := IsAdminInstallMode;
@@ -130,8 +133,8 @@ begin
     ' -Action ' + Action + ' -Mode ' + InstallationMode +
     ' -InstallDirectory ' + AddQuotes(ExpandConstant('{app}')) +
     ' -DataDirectory ' + AddQuotes(InstallationDataDirectory) + ' -Version ' + AddQuotes('{#AppVersion}');
-  Result := Exec(ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'), Parameters,
-    '', SW_HIDE, ewWaitUntilTerminated, ExitCode);
+  Result := ExecAndLogOutput(ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'), Parameters,
+    '', SW_SHOWNORMAL, ewWaitUntilTerminated, ExitCode, nil);
   Result := Result and (ExitCode = 0);
   if not Result then Log('KI-Basis lifecycle action failed: ' + Action + ', exit ' + IntToStr(ExitCode));
 end;
@@ -153,18 +156,29 @@ procedure CurStepChanged(CurStep: TSetupStep);
 begin
   if CurStep <> ssPostInstall then Exit;
   if IsServerMode then begin
-    if not ManageInstallation(ExpandConstant('{app}\Manage-Installation.ps1'), 'Install') then
+    if not ManageInstallation(ExpandConstant('{app}\Manage-Installation.ps1'), 'Install') then begin
+      InstallationFailed := True;
       RaiseException('Der KI-Basis-Dienst konnte nicht gestartet werden. Daten wurden erhalten. Bitte das Installationsprotokoll prüfen.');
+    end;
   end else if WizardIsTaskSelected('startonlogin') then begin
-    if not ManageInstallation(ExpandConstant('{app}\Manage-Installation.ps1'), 'AutostartOn') then
+    if not ManageInstallation(ExpandConstant('{app}\Manage-Installation.ps1'), 'AutostartOn') then begin
+      InstallationFailed := True;
       RaiseException('KI-Basis konnte den Benutzerautostart nicht einrichten. Bitte einen vorhandenen Eintrag einer anderen Installation prüfen.');
-  end else if not ManageInstallation(ExpandConstant('{app}\Manage-Installation.ps1'), 'AutostartOff') then
+    end;
+  end else if not ManageInstallation(ExpandConstant('{app}\Manage-Installation.ps1'), 'AutostartOff') then begin
+    InstallationFailed := True;
     RaiseException('KI-Basis konnte den bisherigen Benutzerautostart nicht deaktivieren. Bitte den Autostart in Windows prüfen.');
+  end;
+end;
+
+function GetCustomSetupExitCode: Integer;
+begin
+  if InstallationFailed then Result := 7 else Result := 0;
 end;
 
 function InitializeUninstall: Boolean;
 begin
   Result := ManageInstallation(ExpandConstant('{app}\Manage-Installation.ps1'), 'Uninstall');
   if not Result then
-    MsgBox('KI-Basis konnte nicht sicher beendet werden. Die Deinstallation wurde abgebrochen; Programme und Daten bleiben erhalten.', mbError, MB_OK);
+    SuppressibleMsgBox('KI-Basis konnte nicht sicher beendet werden. Die Deinstallation wurde abgebrochen; Programme und Daten bleiben erhalten.', mbError, MB_OK, IDOK);
 end;
