@@ -160,6 +160,7 @@ func installRuntimeRecommendation(ctx context.Context, dir string, recommendatio
 	probeCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 	cmd := exec.CommandContext(probeCtx, binary, "--version")
+	configureRuntimeProbe(cmd)
 	cmd.Env = agent.RuntimeEnvironment(binary)
 	if cmd.Run() != nil {
 		if err = ctx.Err(); err != nil {

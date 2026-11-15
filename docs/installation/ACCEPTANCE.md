@@ -41,7 +41,7 @@ und führt den tatsächlichen Installer und Uninstaller aus. Der Prüfumfang umf
 - Ablehnung eines unsicheren Serverinstallationspfads vor Erzeugung des Diensts.
 
 Die ersten nativen Läufe zeigten echte Fehler bei Inno-Setup-Einstellungen und
-Dateifreigabe nach dem Windows-Neustarttest. Sie wurden nicht als Erfolg gewertet.
+Dateifreigabe nach dem Anwendungsneustart unter Windows. Sie wurden nicht als Erfolg gewertet.
 Die Behebung und der finale erfolgreiche Lauf werden hier nachgewiesen.
 
 ## Noch getrennt am Zielsystem abzunehmen
