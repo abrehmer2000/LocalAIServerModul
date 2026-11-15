@@ -112,6 +112,24 @@
       "Der Anwendungszugang wurde entfernt oder widerrufen. Er wird hier nicht automatisch erneuert. Erstelle einen neuen Zugang über die erweiterte Administration.",
     desktop_model_operation_in_progress:
       "Das Modell wird bereits geladen oder angehalten. Warte auf den Abschluss oder brich den Vorgang ab.",
+    disk_full:
+      "Die Modelldatei kann nicht gespeichert werden. Prüfe freien Plattenplatz und Schreibrechte im Datenordner.",
+    hash_mismatch:
+      "Die Modelldatei hat die Integritätsprüfung nicht bestanden. Starte den Download erneut; ungeprüfte Dateien werden nicht verwendet.",
+    download_failed:
+      "Der Modelldownload ist fehlgeschlagen. Prüfe Internetverbindung und freien Speicher und starte ihn erneut.",
+    engine_missing:
+      "Die eingerichtete Laufzeit wurde nicht gefunden. Prüfe die Laufzeitdateien oder stelle die Installation aus einer Sicherung wieder her.",
+    engine_revision_mismatch:
+      "Die Laufzeit wurde seit der Einrichtung verändert. Verwende die geprüfte Laufzeit oder richte eine eigene Version bewusst im Manager ein.",
+    engine_revision_unpinned:
+      "Für die Laufzeit fehlt die gespeicherte Prüfsumme. Prüfe die Einrichtung im erweiterten Manager.",
+    invalid_runtime_options:
+      "Die Laufzeit passt nicht zu den gespeicherten Modelleinstellungen. Prüfe Kontextgröße und gegebenenfalls eigene Modellkomponenten.",
+    external_engine_running:
+      "Der Modellport wird bereits von einem anderen Programm verwendet. Beende dieses Programm und starte das Modell erneut.",
+    engine_failed:
+      "Der Modellserver wurde unerwartet beendet. Prüfe insbesondere verfügbaren Arbeitsspeicher und die Eignung der Laufzeit.",
   };
   const progressLabels = {
     downloading: "Laufzeit wird heruntergeladen …",
@@ -321,6 +339,12 @@
         : downloaded > 0
           ? `${bytes(downloaded)} heruntergeladen`
           : "Bitte warten",
+    );
+    text(
+      "progress-help",
+      report.state === "restarting"
+        ? "Der Modellserver wurde unerwartet beendet. Prüfe Arbeitsspeicher und Laufzeit. Du kannst den Neustartversuch abbrechen."
+        : "Du kannst diese Seite schließen und später über KI-Basis wieder öffnen.",
     );
     const meter = byId("operation-progress");
     if (total > 0) {
