@@ -58,6 +58,12 @@ type desktopApp struct {
 	progress                             runtimeDownloadProgress
 	closeOnce                            sync.Once
 	cookieName                           string
+	lifetimeMu                           sync.Mutex
+	closing                              bool
+	requests                             sync.WaitGroup
+	background                           sync.WaitGroup
+	servers                              sync.WaitGroup
+	closeErr                             error
 }
 
 func desktopDirectory() (string, error) {
@@ -67,7 +73,7 @@ func desktopDirectory() (string, error) {
 	}
 	return filepath.Join(d, "KI-Basis", "desktop"), nil
 }
-func desktopCommand(args []string) error {
+func desktopCommand(args []string) (result error) {
 	flags := flag.NewFlagSet("desktop", flag.ContinueOnError)
 	dir := flags.String("dir", "", "private installation data directory")
 	port := flags.Int("port", 3210, "loopback browser port; default falls back if occupied")
@@ -106,7 +112,7 @@ func desktopCommand(args []string) error {
 	if err != nil {
 		return err
 	}
-	defer app.close()
+	defer func() { app.close(); result = errors.Join(result, app.closeErr) }()
 	if *launch && !*service {
 		openBrowser(app.address + "/#" + app.token)
 	}
@@ -209,6 +215,7 @@ func startDesktop(parent context.Context, options desktopOptions) (result *deskt
 	defer func() {
 		if err != nil {
 			d.close()
+			err = errors.Join(err, d.closeErr)
 		}
 	}()
 	central := filepath.Join(d.dir, "central")
@@ -280,9 +287,14 @@ func startDesktop(parent context.Context, options desktopOptions) (result *deskt
 	mux.Handle("/internal/", d.controller.Handler())
 	mux.Handle("/admin/", d.gateway.Admin(d.controller.AdminHandler()))
 	mux.Handle("/", d.gateway.Handler())
-	d.backend = &http.Server{Handler: d.gateway.GuardPaths(mux), TLSConfig: d.controller.TLSConfig(), ReadHeaderTimeout: 10 * time.Second, ReadTimeout: config.UploadTimeout, IdleTimeout: 30 * time.Second, MaxHeaderBytes: 16 << 10}
-	go d.controller.Monitor(ctx)
-	go func() { d.backendDone <- d.backend.ServeTLS(listener, d.config.TLSCert, d.config.TLSKey) }()
+	d.backend = &http.Server{Handler: d.trackRequests(d.gateway.GuardPaths(mux)), BaseContext: func(net.Listener) context.Context { return d.ctx }, TLSConfig: d.controller.TLSConfig(), ReadHeaderTimeout: 10 * time.Second, ReadTimeout: config.UploadTimeout, IdleTimeout: 30 * time.Second, MaxHeaderBytes: 16 << 10}
+	d.background.Add(1)
+	go func() { defer d.background.Done(); d.controller.Monitor(ctx) }()
+	d.servers.Add(1)
+	go func() {
+		defer d.servers.Done()
+		d.backendDone <- d.backend.ServeTLS(listener, d.config.TLSCert, d.config.TLSKey)
+	}()
 	if err = d.startExistingAgent(); err != nil {
 		return nil, err
 	}
@@ -302,8 +314,9 @@ func startDesktop(parent context.Context, options desktopOptions) (result *deskt
 	d.address = "http://" + browserListener.Addr().String()
 	cookieHash := sha256.Sum256([]byte(d.dir + "|" + d.address))
 	d.cookieName = "ki_desktop_" + hex.EncodeToString(cookieHash[:8])
-	d.server = &http.Server{Handler: d.handler(), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, WriteTimeout: 15 * time.Second, IdleTimeout: 30 * time.Second, MaxHeaderBytes: 16 << 10}
-	go func() { d.serverDone <- d.server.Serve(browserListener) }()
+	d.server = &http.Server{Handler: d.trackRequests(d.handler()), BaseContext: func(net.Listener) context.Context { return d.ctx }, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, WriteTimeout: 15 * time.Second, IdleTimeout: 30 * time.Second, MaxHeaderBytes: 16 << 10}
+	d.servers.Add(1)
+	go func() { defer d.servers.Done(); d.serverDone <- d.server.Serve(browserListener) }()
 	session, _ := json.Marshal(setupSession{URL: d.address, Token: d.token})
 	if err = writePrivate(filepath.Join(d.dir, desktopSessionFile), session); err != nil {
 		return nil, errors.New("desktop_session_storage_failed")
@@ -346,12 +359,49 @@ func (d *desktopApp) startExistingAgent() error {
 	d.stage = "model"
 	return nil
 }
+
+// Admission and shutdown share a mutex: no request can become a new store
+// borrower after shutdown starts waiting for the existing handlers.
+func (d *desktopApp) trackRequests(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		d.lifetimeMu.Lock()
+		if d.closing {
+			d.lifetimeMu.Unlock()
+			desktopError(w, 503, "desktop_stopping")
+			return
+		}
+		d.requests.Add(1)
+		d.lifetimeMu.Unlock()
+		defer d.requests.Done()
+		next.ServeHTTP(w, r)
+	})
+}
+
 func (d *desktopApp) close() {
 	d.closeOnce.Do(func() {
+		d.lifetimeMu.Lock()
+		d.closing = true
+		d.lifetimeMu.Unlock()
 		d.mu.Lock()
 		d.cancel()
 		d.mu.Unlock()
-		// Installers wait for session removal before replacing any owned executables.
+		// Cancel broker jobs before waiting for long polls or streaming requests.
+		// The server BaseContexts also cancel already-admitted request contexts.
+		if d.controller != nil {
+			d.controller.Close()
+		}
+		shutdown, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		for _, server := range []*http.Server{d.server, d.backend} {
+			if server == nil {
+				continue
+			}
+			_ = server.Shutdown(shutdown)
+			// Close interrupts body reads that do not observe context cancellation.
+			if err := server.Close(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+				d.closeErr = errors.Join(d.closeErr, errors.New("desktop_listener_shutdown_failed"))
+			}
+		}
+		cancel()
 		d.workers.Wait()
 		if d.agent != nil {
 			d.agent.mu.Lock()
@@ -363,31 +413,32 @@ func (d *desktopApp) close() {
 			}
 			d.agent.mu.Unlock()
 		}
-		shutdown, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		if d.server != nil {
-			_ = d.server.Shutdown(shutdown)
-			_ = d.server.Close()
-		}
-		if d.backend != nil {
-			_ = d.backend.Shutdown(shutdown)
-			_ = d.backend.Close()
-		}
-		if d.controller != nil {
-			d.controller.Close()
-		}
+		d.background.Wait()
+		d.servers.Wait()
+		d.requests.Wait()
 		if d.gateway != nil {
 			d.gateway.Close()
-		}
-		if d.store != nil {
-			d.store.Close()
 		}
 		if d.client != nil {
 			d.client.CloseIdleConnections()
 		}
-		_ = os.Remove(filepath.Join(d.dir, desktopSessionFile))
+		// Canceled SQL transactions can still be rolling back. Store.Close drains
+		// its connection only after every request, monitor and owned agent has exited.
+		if d.store != nil {
+			if err := d.store.Close(); err != nil {
+				d.closeErr = errors.Join(d.closeErr, errors.New("desktop_audit_shutdown_failed"))
+			}
+		}
+		// Installers interpret disappearance as permission to replace executables.
+		// A failed store drain must not be presented as a completed shutdown.
+		if d.closeErr == nil {
+			if err := os.Remove(filepath.Join(d.dir, desktopSessionFile)); err != nil && !os.IsNotExist(err) {
+				d.closeErr = errors.New("desktop_session_cleanup_failed")
+			}
+		}
 	})
 }
+
 func (d *desktopApp) status() map[string]any {
 	d.mu.Lock()
 	defer d.mu.Unlock()

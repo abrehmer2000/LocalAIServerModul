@@ -141,8 +141,11 @@ func (d *desktopApp) handler() http.Handler {
 }
 
 func desktopOperationError(err error, fallback string) error {
-	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-		return err
+	if errors.Is(err, context.Canceled) {
+		return errors.New("desktop_operation_cancelled")
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return errors.New("desktop_operation_timed_out")
 	}
 	return errors.New(fallback)
 }
