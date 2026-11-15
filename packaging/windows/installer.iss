@@ -79,7 +79,7 @@ Source: Manage-Installation.ps1; DestDir: {app}; Flags: ignoreversion
 Source: Manage-Installation.ps1; Flags: dontcopy
 
 [Icons]
-Name: {group}\KI-Basis; Filename: {app}\KI-Basis-Manager.exe; Parameters: desktop --dir "{userappdata}\KI-Basis\desktop"; WorkingDir: {app}; Check: IsDesktopMode
+Name: {group}\KI-Basis; Filename: {app}\KI-Basis-Manager.exe; Parameters: "desktop --dir ""{userappdata}\KI-Basis\desktop"""; WorkingDir: {app}; Check: IsDesktopMode
 Name: {group}\KI-Basis Server verwalten; Filename: {app}\KI-Basis-Server.exe; WorkingDir: {app}; Check: IsServerMode
 Name: {group}\KI-Basis deinstallieren; Filename: {uninstallexe}
 
@@ -87,7 +87,7 @@ Name: {group}\KI-Basis deinstallieren; Filename: {uninstallexe}
 Root: HKCU; Subkey: Software\Microsoft\Windows\CurrentVersion\Run; ValueType: string; ValueName: KI-Basis-Desktop; ValueData: """{app}\KI-Basis-Manager.exe"" desktop --dir ""{userappdata}\KI-Basis\desktop"" --open-browser=false --quiet-setup"; Tasks: startonlogin; Check: IsDesktopMode; Flags: uninsdeletevalue
 
 [Run]
-Filename: {app}\KI-Basis-Manager.exe; Parameters: desktop --dir "{userappdata}\KI-Basis\desktop"; Description: KI-Basis öffnen; Check: IsDesktopMode; Flags: nowait postinstall skipifsilent runasoriginaluser
+Filename: {app}\KI-Basis-Manager.exe; Parameters: "desktop --dir ""{userappdata}\KI-Basis\desktop"""; Description: KI-Basis öffnen; Check: IsDesktopMode; Flags: nowait postinstall skipifsilent runasoriginaluser
 Filename: {app}\KI-Basis-Server.exe; Description: KI-Basis Serververwaltung öffnen; Check: IsServerMode; Flags: nowait postinstall skipifsilent
 
 [Code]
