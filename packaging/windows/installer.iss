@@ -19,6 +19,9 @@ DefaultDirName={autopf}\KI-Basis
 DefaultGroupName=KI-Basis
 UsePreviousAppDir=no
 UsePreviousGroup=no
+; Installation identity depends on the mode chosen before registry lookup.
+UsePreviousLanguage=no
+UsePreviousPrivileges=no
 PrivilegesRequired=lowest
 PrivilegesRequiredOverridesAllowed=dialog commandline
 ArchitecturesAllowed=x64compatible
